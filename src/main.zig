@@ -120,9 +120,8 @@ fn BTreeNode(comptime B: type, comptime V: type) type {
                         child.traverse();
                     }
                 }
-                std.debug.print("Key: {}, Record(id: {}, name: {s}, email: {s})\n", .{
+                std.debug.print("Key: {}, Record(name: {s}, email: {s})\n", .{
                     self.keys[i],
-                    self.values[i].id,
                     self.values[i].name,
                     self.values[i].email,
                 });
@@ -370,11 +369,12 @@ pub fn Btree(comptime K: type, comptime V: type) type {
         const Self = @This();
         const BTreeNodeK = BTreeNode(K, V);
         root: ?*BTreeNodeK,
+        auto_increment_key: K,
 
         pub fn init() Self {
             const node = std.heap.page_allocator.create(BTreeNodeK) catch unreachable;
             node.* = BTreeNodeK.init(true);
-            return Self{ .root = node };
+            return Self{ .root = node, .auto_increment_key = 0 };
         }
 
         pub fn deinit(self: *Self) void {
@@ -383,6 +383,12 @@ pub fn Btree(comptime K: type, comptime V: type) type {
                 std.heap.page_allocator.destroy(root_node);
                 self.root = null;
             }
+        }
+
+        pub fn insertRecord(self: *Self, value: V) void {
+            const key = self.auto_increment_key;
+            self.insert(key, value);
+            self.auto_increment_key += 1;
         }
 
         pub fn insert(self: *Self, key: K, value: V) void {
@@ -435,39 +441,39 @@ pub fn Btree(comptime K: type, comptime V: type) type {
     };
 }
 
-const Record = struct { id: usize, name: []const u8, email: []const u8 };
+const Record = struct { name: []const u8, email: []const u8 };
 
 pub fn main() void {
     var tree = Btree(usize, Record).init();
     defer tree.deinit();
 
-    tree.insert(1, .{ .id = 101, .name = "alice", .email = "alice@example.com" });
-    tree.insert(2, .{ .id = 102, .name = "bob", .email = "bob@example.com" });
-    tree.insert(3, .{ .id = 103, .name = "carol", .email = "carol@example.com" });
-    tree.insert(4, .{ .id = 104, .name = "dave", .email = "dave@example.com" });
-    tree.insert(5, .{ .id = 105, .name = "eve", .email = "eve@example.com" });
-    tree.insert(6, .{ .id = 106, .name = "frank", .email = "frank@example.com" });
-    tree.insert(7, .{ .id = 107, .name = "grace", .email = "grace@example.com" });
-    tree.insert(8, .{ .id = 108, .name = "heidi", .email = "heidi@example.com" });
-    tree.insert(9, .{ .id = 109, .name = "ivan", .email = "ivan@example.com" });
-    tree.insert(10, .{ .id = 110, .name = "judy", .email = "judy@example.com" });
+    tree.insertRecord(.{ .name = "alice", .email = "alice@example.com" });
+    tree.insertRecord(.{ .name = "bob", .email = "bob@example.com" });
+    tree.insertRecord(.{ .name = "carol", .email = "carol@example.com" });
+    tree.insertRecord(.{ .name = "dave", .email = "dave@example.com" });
+    tree.insertRecord(.{ .name = "eve", .email = "eve@example.com" });
+    tree.insertRecord(.{ .name = "frank", .email = "frank@example.com" });
+    tree.insertRecord(.{ .name = "grace", .email = "grace@example.com" });
+    tree.insertRecord(.{ .name = "heidi", .email = "heidi@example.com" });
+    tree.insertRecord(.{ .name = "ivan", .email = "ivan@example.com" });
+    tree.insertRecord(.{ .name = "judy", .email = "judy@example.com" });
 
     std.debug.print("BTree contents (sorted order):\n", .{});
     tree.traverse();
 
     if (tree.searchTree(2)) |record| {
-        std.debug.print("Found: id :{}, name:{s},email:{s}\n", .{ record.id, record.name, record.email });
+        std.debug.print("Found: name:{s},email:{s}\n", .{ record.name, record.email });
     } else {
         std.debug.print("Not found.\n", .{});
     }
 
     tree.remove(1);
     if (tree.searchTree(2)) |record| {
-        std.debug.print("Found: id :{}, name:{s},email:{s}\n", .{ record.id, record.name, record.email });
+        std.debug.print("Found:name:{s},email:{s}\n", .{ record.name, record.email });
     } else {
         std.debug.print("Not found.\n", .{});
     }
-    std.debug.print("\nAfter deleting 17:\n", .{});
+    std.debug.print("\nAfter deleting 1:\n", .{});
     std.debug.print("BTree contents (sorted order):\n", .{});
     tree.traverse();
 }
