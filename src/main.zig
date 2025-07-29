@@ -4,11 +4,11 @@ const Ti = 2;
 pub const MAX_KEYS = 2 * Ti - 1;
 const MIN_KEYS = Ti - 1;
 
-fn BTreeNode(comptime B: type, comptime V: type) type {
+fn BTreeNode(comptime V: type) type {
     return struct {
         const Self = @This();
 
-        keys: [MAX_KEYS]B,
+        keys: [MAX_KEYS]usize,
         values: [MAX_KEYS]V,
         children: [MAX_KEYS + 1]?*Self,
         num_keys: u8,
@@ -37,7 +37,7 @@ fn BTreeNode(comptime B: type, comptime V: type) type {
             // The current node will be destroyed by the caller (Btree or parent).
         }
 
-        pub fn insert(self: *Self, key: B, value: V) void {
+        pub fn insert(self: *Self, key: usize, value: V) void {
             var i: i32 = @as(i32, self.num_keys) - 1;
 
             if (self.is_leaf) {
@@ -133,7 +133,7 @@ fn BTreeNode(comptime B: type, comptime V: type) type {
             }
         }
 
-        pub fn search(self: *Self, key: B) ?V {
+        pub fn search(self: *Self, key: usize) ?V {
             var i: usize = 0;
 
             // Find the first key greater than or equal to `key`
@@ -153,7 +153,7 @@ fn BTreeNode(comptime B: type, comptime V: type) type {
             return self.children[i].?.search(key);
         }
 
-        pub fn remove(self: *Self, key: B) void {
+        pub fn remove(self: *Self, key: usize) void {
             var idx: usize = 0;
 
             // Find the key's position in the node
@@ -174,10 +174,11 @@ fn BTreeNode(comptime B: type, comptime V: type) type {
                 if (child.num_keys == MIN_KEYS) {
                     self.fillChild(idx);
 
-                    if (idx >= self.num_keys + 1) {
-                        // idx was the last child, and merge moved it left.
+                    if (idx > self.num_keys) {
+                        // If merge happened with next sibling, the key to recurse into is now at idx - 1
                         self.children[idx - 1].?.remove(key);
-                        return;
+                    } else {
+                        self.children[idx].?.remove(key);
                     }
                 }
 
@@ -219,7 +220,7 @@ fn BTreeNode(comptime B: type, comptime V: type) type {
             }
         }
 
-        fn getPredecessorKey(self: *Self, idx: usize) B {
+        fn getPredecessorKey(self: *Self, idx: usize) usize {
             var curr = self.children[idx].?;
             while (!curr.is_leaf) {
                 curr = curr.children[curr.num_keys].?;
@@ -235,7 +236,7 @@ fn BTreeNode(comptime B: type, comptime V: type) type {
             return curr.values[curr.num_keys - 1];
         }
 
-        fn getSuccessorKey(self: *Self, idx: usize) B {
+        fn getSuccessorKey(self: *Self, idx: usize) usize {
             var curr = self.children[idx + 1].?;
             while (!curr.is_leaf) {
                 curr = curr.children[0].?;
@@ -364,12 +365,12 @@ fn BTreeNode(comptime B: type, comptime V: type) type {
     };
 }
 
-pub fn Btree(comptime K: type, comptime V: type) type {
+pub fn Btree(comptime V: type) type {
     return struct {
         const Self = @This();
-        const BTreeNodeK = BTreeNode(K, V);
+        const BTreeNodeK = BTreeNode(V);
         root: ?*BTreeNodeK,
-        auto_increment_key: K,
+        auto_increment_key: usize,
 
         pub fn init() Self {
             const node = std.heap.page_allocator.create(BTreeNodeK) catch unreachable;
@@ -391,7 +392,7 @@ pub fn Btree(comptime K: type, comptime V: type) type {
             self.auto_increment_key += 1;
         }
 
-        pub fn insert(self: *Self, key: K, value: V) void {
+        pub fn insert(self: *Self, key: usize, value: V) void {
             if (self.root) |r| {
                 if (r.num_keys == MAX_KEYS) {
                     var s = std.heap.page_allocator.create(BTreeNodeK) catch unreachable;
@@ -418,14 +419,14 @@ pub fn Btree(comptime K: type, comptime V: type) type {
             }
         }
 
-        pub fn searchTree(self: *Self, key: K) ?V {
+        pub fn searchTree(self: *Self, key: usize) ?V {
             if (self.root) |root| {
                 return root.search(key);
             }
             return null;
         }
 
-        pub fn remove(self: *Self, key: K) void {
+        pub fn remove(self: *Self, key: usize) void {
             if (self.root) |root| {
                 root.remove(key);
 
@@ -444,7 +445,7 @@ pub fn Btree(comptime K: type, comptime V: type) type {
 const Record = struct { name: []const u8, email: []const u8 };
 
 pub fn main() void {
-    var tree = Btree(usize, Record).init();
+    var tree = Btree(Record).init();
     defer tree.deinit();
 
     tree.insertRecord(.{ .name = "alice", .email = "alice@example.com" });
@@ -466,9 +467,9 @@ pub fn main() void {
     } else {
         std.debug.print("Not found.\n", .{});
     }
-
+    std.debug.print("\nAfter deleting 1:\n", .{});
     tree.remove(1);
-    if (tree.searchTree(2)) |record| {
+    if (tree.searchTree(1)) |record| {
         std.debug.print("Found:name:{s},email:{s}\n", .{ record.name, record.email });
     } else {
         std.debug.print("Not found.\n", .{});
