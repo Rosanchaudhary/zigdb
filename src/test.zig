@@ -6,7 +6,7 @@ const Record = struct {
     email: []const u8,
 };
 
-const Btree = @import("main.zig").Btree;
+const Btree = @import("bTree.zig").Btree;
 
 test "insert and search records in BTree" {
     var tree = Btree(Record).init();
