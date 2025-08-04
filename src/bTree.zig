@@ -42,7 +42,7 @@ pub fn Btree(comptime V: type) type {
         pub fn init() !Self {
             var header_file = try std.fs.cwd().createFile("btreeheader.db", .{ .read = true, .truncate = true });
             const record_file = try std.fs.cwd().createFile("btreerecord.db", .{ .read = true, .truncate = true });
-            const node_file = try std.fs.cwd().createFile("btreenode.db", .{ .read = true, .truncate = true });
+            const node_file = try std.fs.cwd().createFile("btreenode.txt", .{ .read = true, .truncate = true });
 
             var root = BTreeNodeK.init(true);
             const offset = try Self.writeNodeStatic(header_file, &root);
@@ -73,15 +73,19 @@ pub fn Btree(comptime V: type) type {
         }
 
         pub fn insert(self: *Self, key: usize, value: V) !void {
+            std.debug.print("*****************************************************\n", .{});
             const record_offset = try self.writeRecord(value);
             var root = try self.readNode(self.header.root_node_offset);
 
             if (root.num_keys == MAX_KEYS) {
+                std.debug.print("Inserting when max key is equal to num key\n", .{});
                 var new_root = BTreeNodeK.init(false);
                 new_root.children_offsets[0] = self.header.root_node_offset;
+                //new_root.print();
                 try new_root.splitChild(0, &root, self);
 
-                const new_root_offset = try self.writeNode(&new_root);
+                const new_root_offset = try self.writeNode(&new_root, true);
+                std.debug.print("New root node offset is {d}\n", .{new_root_offset});
                 self.header.root_node_offset = new_root_offset;
                 try self.writeHeader();
 
@@ -110,8 +114,32 @@ pub fn Btree(comptime V: type) type {
             return offset;
         }
 
-        pub fn writeNode(self: *Self, node: *BTreeNodeK) !u64 {
-            return try Self.writeNodeStatic(self.node_file, node);
+        pub fn writeNode(self: *Self, node: *BTreeNodeK, is_root: bool) !u64 {
+            return try Self.writeNodeStaticTest(self, self.node_file, node, is_root);
+        }
+
+        pub fn writeNodeStaticTest(self: *Self, file: std.fs.File, node: *BTreeNodeK, is_root: bool) !u64 {
+            node.print();
+            const seeker = file.seekableStream();
+            const writer = file.writer();
+
+            var offset: u64 = 0;
+            if (is_root) {
+                try seeker.seekTo(self.header.root_node_offset);
+                offset = try seeker.getPos();
+            } else {
+                offset = try seeker.getEndPos(); // <- FIXED
+                try seeker.seekTo(offset); // <- FIXED
+            }
+
+            try writer.writeByte(@intFromBool(node.is_leaf));
+            try writer.writeByte(node.num_keys);
+
+            for (0..MAX_KEYS) |i| try writer.writeInt(usize, node.keys[i], .little);
+            for (0..MAX_KEYS) |i| try writer.writeInt(u64, node.values[i], .little);
+            for (0..MAX_CHILDREN) |i| try writer.writeInt(u64, node.children_offsets[i], .little);
+
+            return offset;
         }
 
         pub fn writeNodeStatic(file: std.fs.File, node: *BTreeNodeK) !u64 {
@@ -134,7 +162,10 @@ pub fn Btree(comptime V: type) type {
             const stat = try self.node_file.stat();
 
             if (stat.size < node_serialized_size + offset) {
-                return BTreeNodeK.init(true);
+                const node = BTreeNodeK.init(true);
+                //std.debug.print("Reading node####################\n", .{});
+                //node.print();
+                return node;
             }
 
             var buffer: [node_serialized_size]u8 = undefined;
@@ -149,14 +180,9 @@ pub fn Btree(comptime V: type) type {
             for (0..MAX_KEYS) |i| node.keys[i] = try reader.readInt(usize, .little);
             for (0..MAX_KEYS) |i| node.values[i] = try reader.readInt(u64, .little);
             for (0..MAX_CHILDREN) |i| node.children_offsets[i] = try reader.readInt(u64, .little);
-            // for (node.keys) |value| {
-            //     std.debug.print("The offset of record is {d}\n", .{value});
-            // }
 
-            for (node.keys) |value| {
-                std.debug.print("The value of key {d} \n", .{value});
-            }
-            std.debug.print("The value of num key {d}\n", .{node.num_keys});
+            //std.debug.print("Reading node####################\n", .{});
+            // node.print();
             return node;
         }
 

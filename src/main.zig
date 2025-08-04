@@ -13,8 +13,8 @@ pub fn main() !void {
 
     try tree.insertRecord(.{ .name = "alice", .email = "alice@example.com" });
     try tree.insertRecord(.{ .name = "bob", .email = "bob@example.com" });
-    // try tree.insertRecord(.{ .name = "carol", .email = "carol@example.com" });
-    // try tree.insertRecord(.{ .name = "dave", .email = "dave@example.com" });
+    try tree.insertRecord(.{ .name = "carol", .email = "carol@example.com" });
+    try tree.insertRecord(.{ .name = "dave", .email = "dave@example.com" });
     // try tree.insertRecord(.{ .name = "eve", .email = "eve@example.com" });
 
     std.debug.print("Inserted records.\n", .{});
