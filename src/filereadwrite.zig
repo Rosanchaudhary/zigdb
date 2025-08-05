@@ -93,8 +93,6 @@ pub fn main() !void {
     try file.seekTo(0);
     const header_writer = file.writer();
     try header.write(header_writer);
-    std.debug.print("Write complete. Root node @ {d}\n", .{node_offset});
-
     // // === READ PHASE ===
     {
         try file.seekTo(0);

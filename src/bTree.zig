@@ -73,19 +73,19 @@ pub fn Btree(comptime V: type) type {
         }
 
         pub fn insert(self: *Self, key: usize, value: V) !void {
-            std.debug.print("*****************************************************\n", .{});
+           
             const record_offset = try self.writeRecord(value);
             var root = try self.readNode(self.header.root_node_offset);
 
             if (root.num_keys == MAX_KEYS) {
-                std.debug.print("Inserting when max key is equal to num key\n", .{});
+
                 var new_root = BTreeNodeK.init(false);
                 new_root.children_offsets[0] = self.header.root_node_offset;
                 //new_root.print();
                 try new_root.splitChild(0, &root, self);
 
                 const new_root_offset = try self.writeNode(&new_root, true);
-                std.debug.print("New root node offset is {d}\n", .{new_root_offset});
+               
                 self.header.root_node_offset = new_root_offset;
                 try self.writeHeader();
 
@@ -119,7 +119,7 @@ pub fn Btree(comptime V: type) type {
         }
 
         pub fn writeNodeStaticTest(self: *Self, file: std.fs.File, node: *BTreeNodeK, is_root: bool) !u64 {
-            node.print();
+            //node.print();
             const seeker = file.seekableStream();
             const writer = file.writer();
 
@@ -163,8 +163,6 @@ pub fn Btree(comptime V: type) type {
 
             if (stat.size < node_serialized_size + offset) {
                 const node = BTreeNodeK.init(true);
-                //std.debug.print("Reading node####################\n", .{});
-                //node.print();
                 return node;
             }
 
@@ -181,14 +179,11 @@ pub fn Btree(comptime V: type) type {
             for (0..MAX_KEYS) |i| node.values[i] = try reader.readInt(u64, .little);
             for (0..MAX_CHILDREN) |i| node.children_offsets[i] = try reader.readInt(u64, .little);
 
-            //std.debug.print("Reading node####################\n", .{});
-            // node.print();
             return node;
         }
 
         pub fn traverse(self: *Self) !void {
             const root = try self.readNode(self.header.root_node_offset);
-            std.debug.print("The root data num keys {d}\n", .{root.num_keys});
             try root.traverse(self);
         }
 
@@ -211,6 +206,11 @@ pub fn Btree(comptime V: type) type {
                 .name = name_buf[0..name_len],
                 .email = email_buf[0..email_len],
             };
+        }
+
+        pub fn traverseAllNodes(self: *Self) !void {
+            const root = try self.readNode(self.header.root_node_offset);
+            try root.traverseNodes(self);
         }
     };
 }
