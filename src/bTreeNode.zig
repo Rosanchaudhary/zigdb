@@ -153,4 +153,20 @@ pub const BTreeNode = struct {
 
         return try records.toOwnedSlice();
     }
+
+    pub fn search(self: *const BTreeNode, key: usize, tree: anytype) !?u64 {
+        var i: usize = 0;
+        while (i < self.num_keys and key > self.keys[i]) : (i += 1) {}
+
+        if (i < self.num_keys and key == self.keys[i]) {
+            return self.values[i]; // found, return record offset
+        }
+
+        if (self.is_leaf) {
+            return null; // not found
+        }
+
+        const child = try tree.readNode(self.children_offsets[i]);
+        return try child.search(key, tree);
+    }
 };

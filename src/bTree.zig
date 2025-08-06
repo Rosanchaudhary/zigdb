@@ -65,14 +65,14 @@ pub fn Btree(comptime V: type) type {
             self.node_file.close();
         }
 
-        pub fn insertRecord(self: *Self, value: V) !void {
-            const key = @as(usize, self.header.record_count);
-            try self.insert(key, value);
-            self.header.record_count += 1;
-            try self.writeHeader();
-        }
+        // pub fn insertRecord(self: *Self, value: V) !void {
+        //     const key = @as(usize, self.header.record_count);
+        //     try self.insert(key, value);
+        //     self.header.record_count += 1;
+        //     try self.writeHeader();
+        // }
 
-        pub fn insert(self: *Self, key: usize, value: V) !void {
+        pub fn insert(self: *Self, value: V) !void {
             const record_offset = try self.writeRecord(value);
             var root = try self.readNode(self.header.root_node_offset);
 
@@ -86,9 +86,9 @@ pub fn Btree(comptime V: type) type {
                 self.header.root_node_offset = new_root_offset;
                 try self.writeHeader();
 
-                try new_root.insertNonFull(key, record_offset, self);
+                try new_root.insertNonFull(value.id, record_offset, self);
             } else {
-                try root.insertNonFull(key, record_offset, self);
+                try root.insertNonFull(value.id, record_offset, self);
             }
         }
 
@@ -109,20 +109,41 @@ pub fn Btree(comptime V: type) type {
             inline for (structInfo.fields) |field| {
                 // Access the field value from `value`
                 const field_value = @field(value, field.name);
+                const field_type = field.type;
+
+                switch (@typeInfo(field_type)) {
+                    .pointer => |ptrInfo| {
+                        if (ptrInfo.child == u8 and ptrInfo.size == .slice) {
+                            try writer.writeInt(u64, field_value.len, .little);
+                            try writer.writeAll(field_value);
+                        } else {
+                            @compileError("Only []u8 slices are supported for pointer types.");
+                        }
+                    },
+                    .int => {
+                        try writer.writeInt(field_type, field_value, .little);
+                    },
+                    .bool => {
+                        try writer.writeByte(if (field_value) 1 else 0);
+                    },
+                    else => {
+                        @compileError("Unsupported field type in writeRecord.");
+                    },
+                }
 
                 // Make sure it's []u8 for now — or add type handling
-                try writer.writeInt(u64, field_value.len, .little);
-                try writer.writeAll(field_value);
+                // try writer.writeInt(u64, field_value.len, .little);
+                // try writer.writeAll(field_value);
             }
 
             return offset;
         }
 
         pub fn writeNode(self: *Self, node: *BTreeNodeK, is_root: bool) !u64 {
-            return try Self.writeNodeStaticTest(self, self.node_file, node, is_root);
+            return try Self.writeNodeWithOffset(self, self.node_file, node, is_root);
         }
 
-        pub fn writeNodeStaticTest(self: *Self, file: std.fs.File, node: *BTreeNodeK, is_root: bool) !u64 {
+        pub fn writeNodeWithOffset(self: *Self, file: std.fs.File, node: *BTreeNodeK, is_root: bool) !u64 {
             const seeker = file.seekableStream();
             const writer = file.writer();
 
@@ -201,16 +222,35 @@ pub fn Btree(comptime V: type) type {
             const typeInfo = @typeInfo(V);
             const structInfo = typeInfo.@"struct";
 
-            // Temporary storage for each field value
             var result: V = undefined;
 
             inline for (structInfo.fields) |field| {
-                const field_len = try reader.readInt(u64, .little);
-                const field_buf = try allocator.alloc(u8, field_len);
-                try reader.readNoEof(field_buf);
+                const field_type = field.type;
 
-                // Assign field using @field
-                @field(result, field.name) = field_buf;
+                switch (@typeInfo(field_type)) {
+                    .pointer => |ptrInfo| {
+                        // Handle []u8 only
+                        if (ptrInfo.size == .slice and ptrInfo.child == u8) {
+                            const field_len = try reader.readInt(u64, .little);
+                            const field_buf = try allocator.alloc(u8, field_len);
+                            try reader.readNoEof(field_buf);
+                            @field(result, field.name) = field_buf;
+                        } else {
+                            @compileError("Only []u8 slice pointers are supported.");
+                        }
+                    },
+                    .int => {
+                        const value = try reader.readInt(field_type, .little);
+                        @field(result, field.name) = value;
+                    },
+                    .bool => {
+                        const b = try reader.readByte();
+                        @field(result, field.name) = b != 0;
+                    },
+                    else => {
+                        @compileError("Unsupported field type in readRecord.");
+                    },
+                }
             }
 
             return result;
@@ -219,6 +259,16 @@ pub fn Btree(comptime V: type) type {
         pub fn traverseAllNodes(self: *Self) !void {
             const root = try self.readNode(self.header.root_node_offset);
             try root.traverseNodes(self);
+        }
+
+        pub fn search(self: *Self, key: usize) !?V {
+            const root = try self.readNode(self.header.root_node_offset);
+            const offset_opt = try root.search(key, self);
+            if (offset_opt) |offset| {
+                return try self.readRecord(offset);
+            } else {
+                return null;
+            }
         }
     };
 }
