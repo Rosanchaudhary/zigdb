@@ -1,5 +1,6 @@
 // bTreeNode.zig
 const std = @import("std");
+const Record = @import("main.zig").Record;
 const Ti = 2;
 const MAX_KEYS = 2 * Ti - 1;
 const MIN_KEYS = Ti - 1;
@@ -74,7 +75,6 @@ pub const BTreeNode = struct {
 
             _ = try tree.writeNode(self, true);
         } else {
-           
             while (i > 0 and key < self.keys[i - 1]) : (i -= 1) {}
             var child = try tree.readNode(self.children_offsets[i]);
             if (child.num_keys == MAX_KEYS) {
@@ -122,31 +122,35 @@ pub const BTreeNode = struct {
         self.values[i] = y.values[MIN_KEYS];
         self.num_keys += 1;
 
-
         const y_offset = try tree.writeNode(y, false);
         self.children_offsets[i] = y_offset;
 
         _ = try tree.writeNode(self, true);
-       
     }
 
-    pub fn traverse(self: *const BTreeNode, tree: anytype) !void {
+    pub fn traverse(self: *const BTreeNode, tree: anytype, allocator: std.mem.Allocator) ![]Record {
+        var records = std.ArrayList(Record).init(allocator);
+
         var i: usize = 0;
         while (i < self.num_keys) {
             if (!self.is_leaf) {
                 const child = try tree.readNode(self.children_offsets[i]);
-                try child.traverse(tree);
+                const child_records = try child.traverse(tree, allocator);
+                try records.appendSlice(child_records);
             }
 
             const record = try tree.readRecord(self.values[i]);
-            std.debug.print("Key: {}, Name: {s}, Email: {s}\n", .{
-                self.keys[i], record.name, record.email,
-            });
+            try records.append(record);
+
             i += 1;
         }
+
         if (!self.is_leaf) {
             const child = try tree.readNode(self.children_offsets[i]);
-            try child.traverse(tree);
+            const child_records = try child.traverse(tree, allocator);
+            try records.appendSlice(child_records);
         }
+
+        return try records.toOwnedSlice();
     }
 };

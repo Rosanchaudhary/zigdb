@@ -73,19 +73,16 @@ pub fn Btree(comptime V: type) type {
         }
 
         pub fn insert(self: *Self, key: usize, value: V) !void {
-           
             const record_offset = try self.writeRecord(value);
             var root = try self.readNode(self.header.root_node_offset);
 
             if (root.num_keys == MAX_KEYS) {
-
                 var new_root = BTreeNodeK.init(false);
                 new_root.children_offsets[0] = self.header.root_node_offset;
-                //new_root.print();
                 try new_root.splitChild(0, &root, self);
 
                 const new_root_offset = try self.writeNode(&new_root, true);
-               
+
                 self.header.root_node_offset = new_root_offset;
                 try self.writeHeader();
 
@@ -106,10 +103,17 @@ pub fn Btree(comptime V: type) type {
             const writer = self.record_file.writer();
             const offset = try seeker.getPos();
 
-            try writer.writeInt(u64, value.name.len, .little);
-            try writer.writeAll(value.name);
-            try writer.writeInt(u64, value.email.len, .little);
-            try writer.writeAll(value.email);
+            const typeInfo = @typeInfo(V);
+            const structInfo = typeInfo.@"struct";
+
+            inline for (structInfo.fields) |field| {
+                // Access the field value from `value`
+                const field_value = @field(value, field.name);
+
+                // Make sure it's []u8 for now — or add type handling
+                try writer.writeInt(u64, field_value.len, .little);
+                try writer.writeAll(field_value);
+            }
 
             return offset;
         }
@@ -119,7 +123,6 @@ pub fn Btree(comptime V: type) type {
         }
 
         pub fn writeNodeStaticTest(self: *Self, file: std.fs.File, node: *BTreeNodeK, is_root: bool) !u64 {
-            //node.print();
             const seeker = file.seekableStream();
             const writer = file.writer();
 
@@ -182,30 +185,35 @@ pub fn Btree(comptime V: type) type {
             return node;
         }
 
-        pub fn traverse(self: *Self) !void {
+        pub fn traverse(self: *Self) ![]V {
+            const allocator = std.heap.page_allocator;
             const root = try self.readNode(self.header.root_node_offset);
-            try root.traverse(self);
+            return try root.traverse(self, allocator);
         }
 
         pub fn readRecord(self: *Self, offset: u64) !V {
+            const allocator = std.heap.page_allocator;
             const seeker = self.record_file.seekableStream();
             const reader = self.record_file.reader();
 
             try seeker.seekTo(offset);
-            const name_len = try reader.readInt(u64, .little);
-            const name_buf = try std.heap.page_allocator.alloc(u8, name_len);
-            //defer std.heap.page_allocator.free(name_buf);
-            try reader.readNoEof(name_buf);
 
-            const email_len = try reader.readInt(u64, .little);
-            const email_buf = try std.heap.page_allocator.alloc(u8, email_len);
-            //defer std.heap.page_allocator.free(email_buf);
-            try reader.readNoEof(email_buf);
+            const typeInfo = @typeInfo(V);
+            const structInfo = typeInfo.@"struct";
 
-            return V{
-                .name = name_buf[0..name_len],
-                .email = email_buf[0..email_len],
-            };
+            // Temporary storage for each field value
+            var result: V = undefined;
+
+            inline for (structInfo.fields) |field| {
+                const field_len = try reader.readInt(u64, .little);
+                const field_buf = try allocator.alloc(u8, field_len);
+                try reader.readNoEof(field_buf);
+
+                // Assign field using @field
+                @field(result, field.name) = field_buf;
+            }
+
+            return result;
         }
 
         pub fn traverseAllNodes(self: *Self) !void {
