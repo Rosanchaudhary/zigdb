@@ -40,15 +40,23 @@ pub fn Btree(comptime V: type) type {
         header: Header,
 
         pub fn init() !Self {
+            // Create files
             var header_file = try std.fs.cwd().createFile("btreeheader.db", .{ .read = true, .truncate = true });
             const record_file = try std.fs.cwd().createFile("btreerecord.db", .{ .read = true, .truncate = true });
             const node_file = try std.fs.cwd().createFile("btreenode.txt", .{ .read = true, .truncate = true });
 
+            // Initialize the root node
             var root = BTreeNodeK.init(true);
-            const offset = try Self.writeNodeStatic(header_file, &root);
 
+            // Write the root node to the NODE FILE, not the header file!
+            const offset = try Self.writeNodeStatic(node_file, &root);
+
+            // Write header to the HEADER FILE
             try header_file.seekTo(0);
-            const header = Header{ .root_node_offset = offset, .record_count = 0 };
+            const header = Header{
+                .root_node_offset = offset,
+                .record_count = 0,
+            };
             try header.write(header_file.writer());
 
             return Self{
@@ -130,10 +138,6 @@ pub fn Btree(comptime V: type) type {
                         @compileError("Unsupported field type in writeRecord.");
                     },
                 }
-
-                // Make sure it's []u8 for now — or add type handling
-                // try writer.writeInt(u64, field_value.len, .little);
-                // try writer.writeAll(field_value);
             }
 
             return offset;
@@ -147,21 +151,30 @@ pub fn Btree(comptime V: type) type {
             const seeker = file.seekableStream();
             const writer = file.writer();
 
-            var offset: u64 = 0;
-            if (is_root) {
-                try seeker.seekTo(self.header.root_node_offset);
-                offset = try seeker.getPos();
-            } else {
-                offset = try seeker.getEndPos(); // <- FIXED
-                try seeker.seekTo(offset); // <- FIXED
-            }
+            // Always append the node at the end of the file
+            const offset = try seeker.getEndPos();
+            try seeker.seekTo(offset);
 
             try writer.writeByte(@intFromBool(node.is_leaf));
             try writer.writeByte(node.num_keys);
 
-            for (0..MAX_KEYS) |i| try writer.writeInt(usize, node.keys[i], .little);
-            for (0..MAX_KEYS) |i| try writer.writeInt(u64, node.values[i], .little);
-            for (0..MAX_CHILDREN) |i| try writer.writeInt(u64, node.children_offsets[i], .little);
+            for (0..MAX_KEYS) |i| {
+                try writer.writeInt(usize, node.keys[i], .little);
+            }
+
+            for (0..MAX_KEYS) |i| {
+                try writer.writeInt(u64, node.values[i], .little);
+            }
+
+            for (0..MAX_CHILDREN) |i| {
+                try writer.writeInt(u64, node.children_offsets[i], .little);
+            }
+
+            // If this node is the new root, update the header
+            if (is_root) {
+                self.header.root_node_offset = offset;
+                try self.writeHeader();
+            }
 
             return offset;
         }
@@ -274,21 +287,15 @@ pub fn Btree(comptime V: type) type {
         pub fn delete(self: *Self, key: usize) !bool {
             var root = try self.readNode(self.header.root_node_offset);
 
-            // Attempt to delete the key from the root
             const deleted = try root.delete(key, self);
 
-            // If root has 0 keys and is not a leaf, shrink the tree height
             if (root.num_keys == 0 and !root.is_leaf) {
-                // Replace root with its only child
+                // Shrink height by replacing root with its only child
                 var new_root = try self.readNode(root.children_offsets[0]);
-                self.header.root_node_offset = try self.writeNode(&new_root, true);
+                _ = try self.writeNodeWithOffset(self.node_file, &new_root, true);
             } else {
-                // Write updated root (even if unchanged in structure, it may have fewer keys)
-                self.header.root_node_offset = try self.writeNode(&root, true);
+                _ = try self.writeNodeWithOffset(self.node_file, &root, true);
             }
-
-            // Always write header in case root offset changed
-            try self.writeHeader();
 
             return deleted;
         }
