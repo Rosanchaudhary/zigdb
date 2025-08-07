@@ -14,15 +14,38 @@ pub fn main() !void {
     try tree.insert(.{ .id = 5, .name = "eve", .email = "eve@example.com", .address = "home" });
 
     std.debug.print("Inserted records.\n", .{});
-    const dataList = try tree.traverse();
-    for (dataList) |value| {
-        std.debug.print("Id: {d}, Name: {s}, Email: {s} , Address:{s}\n", .{ value.id, value.name, value.email, value.address });
+     try tree.traverseAllNodes();
+    // const dataList = try tree.traverse();
+    // for (dataList) |value| {
+    //     std.debug.print("Id: {d}, Name: {s}, Email: {s} , Address:{s}\n", .{ value.id, value.name, value.email, value.address });
+    // }
+
+    // const result = try tree.search(2);
+    // if (result) |record| {
+    //     std.debug.print(" Name: {s}, Email: {s} , Address:{s}\n", .{ record.name, record.email, record.address });
+    // } else {
+    //     std.debug.print("Not found.\n", .{});
+    // }
+
+    // const deleted = try tree.deleteLeafOnly(2);
+    // if (deleted) {
+    //     std.debug.print("Deleted key 4.\n", .{});
+    // } else {
+    //     std.debug.print("Could not delete key 4.\n", .{});
+    // }
+
+    const deleted = try tree.delete(1);
+    if (deleted) {
+        std.debug.print("Deleted key 2 from internal node.\n", .{});
+    } else {
+        std.debug.print("Key 2 not deleted.\n", .{});
     }
 
-    const result = try tree.search(2);
-    if (result) |record| {
-        std.debug.print(" Name: {s}, Email: {s} , Address:{s}\n", .{ record.name, record.email, record.address });
-    } else {
-        std.debug.print("Not found.\n", .{});
+    //try tree.traverseAllNodes();
+
+    std.debug.print("after deletion records.\n", .{});
+    const newList = try tree.traverse();
+    for (newList) |value| {
+        std.debug.print("Id: {d}, Name: {s}, Email: {s} , Address:{s}\n", .{ value.id, value.name, value.email, value.address });
     }
 }

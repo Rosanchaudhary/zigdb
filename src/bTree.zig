@@ -270,5 +270,27 @@ pub fn Btree(comptime V: type) type {
                 return null;
             }
         }
+
+        pub fn delete(self: *Self, key: usize) !bool {
+            var root = try self.readNode(self.header.root_node_offset);
+
+            // Attempt to delete the key from the root
+            const deleted = try root.delete(key, self);
+
+            // If root has 0 keys and is not a leaf, shrink the tree height
+            if (root.num_keys == 0 and !root.is_leaf) {
+                // Replace root with its only child
+                var new_root = try self.readNode(root.children_offsets[0]);
+                self.header.root_node_offset = try self.writeNode(&new_root, true);
+            } else {
+                // Write updated root (even if unchanged in structure, it may have fewer keys)
+                self.header.root_node_offset = try self.writeNode(&root, true);
+            }
+
+            // Always write header in case root offset changed
+            try self.writeHeader();
+
+            return deleted;
+        }
     };
 }
