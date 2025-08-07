@@ -286,6 +286,8 @@ pub fn Btree(comptime V: type) type {
 
         pub fn delete(self: *Self, key: usize) !bool {
             var root = try self.readNode(self.header.root_node_offset);
+            std.debug.print("This is root node\n", .{});
+            root.print();
 
             const deleted = try root.delete(key, self);
 
