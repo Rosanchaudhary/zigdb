@@ -155,21 +155,30 @@ pub fn Btree(comptime V: type) type {
             const seeker = file.seekableStream();
             const writer = file.writer();
 
-            var offset: u64 = 0;
-            if (is_root) {
-                try seeker.seekTo(self.header.root_node_offset);
-                offset = try seeker.getPos();
-            } else {
-                offset = try seeker.getEndPos(); // <- FIXED
-                try seeker.seekTo(offset); // <- FIXED
-            }
+            // Always append the node at the end of the file
+            const offset = try seeker.getEndPos();
+            try seeker.seekTo(offset);
 
             try writer.writeByte(@intFromBool(node.is_leaf));
             try writer.writeByte(node.num_keys);
 
-            for (0..MAX_KEYS) |i| try writer.writeInt(usize, node.keys[i], .little);
-            for (0..MAX_KEYS) |i| try writer.writeInt(u64, node.values[i], .little);
-            for (0..MAX_CHILDREN) |i| try writer.writeInt(u64, node.children_offsets[i], .little);
+            for (0..MAX_KEYS) |i| {
+                try writer.writeInt(usize, node.keys[i], .little);
+            }
+
+            for (0..MAX_KEYS) |i| {
+                try writer.writeInt(u64, node.values[i], .little);
+            }
+
+            for (0..MAX_CHILDREN) |i| {
+                try writer.writeInt(u64, node.children_offsets[i], .little);
+            }
+
+            // If this node is the new root, update the header
+            if (is_root) {
+                self.header.root_node_offset = offset;
+                try self.writeHeader();
+            }
 
             return offset;
         }
