@@ -60,31 +60,55 @@ pub const BTreeNode = struct {
         }
     }
 
-    pub fn insertNonFull(self: *BTreeNode, key: usize, record_offset: u64, tree: anytype) !void {
-        var i = self.num_keys;
+    fn findKeyIndex(self: *const BTreeNode, key: usize) usize {
+        var left: usize = 0;
+        var right: usize = self.num_keys;
 
-        if (self.is_leaf) {
-            while (i > 0) : (i -= 1) {
-                if (key >= self.keys[i - 1]) break;
-                self.keys[i] = self.keys[i - 1];
-                self.values[i] = self.values[i - 1];
+        while (left < right) {
+            const mid = (left + right) / 2;
+            if (self.keys[mid] < key) {
+                left = mid + 1;
+            } else {
+                right = mid;
             }
+        }
+
+        return left;
+    }
+
+    pub fn insertNonFull(self: *BTreeNode, key: usize, record_offset: u64, tree: anytype) !void {
+        if (self.is_leaf) {
+            const i = self.findKeyIndex(key);
+
+            var j = self.num_keys;
+            while (j > i) : (j -= 1) {
+                self.keys[j] = self.keys[j - 1];
+                self.values[j] = self.values[j - 1];
+            }
+
             self.keys[i] = key;
             self.values[i] = record_offset;
             self.num_keys += 1;
 
             _ = try tree.writeNode(self, true);
         } else {
-            while (i > 0 and key < self.keys[i - 1]) : (i -= 1) {}
+            var i = self.findKeyIndex(key);
             var child = try tree.readNode(self.children_offsets[i]);
+
             if (child.num_keys == MAX_KEYS) {
                 try self.splitChild(i, &child, tree);
-                if (key > self.keys[i]) i += 1;
+
+                if (key > self.keys[i]) {
+                    i += 1;
+                }
+
                 child = try tree.readNode(self.children_offsets[i]);
             }
+
             try child.insertNonFull(key, record_offset, tree);
             const new_offset = try tree.writeNode(&child, false);
             self.children_offsets[i] = new_offset;
+
             _ = try tree.writeNode(self, true);
         }
     }
@@ -155,26 +179,119 @@ pub const BTreeNode = struct {
     }
 
     pub fn search(self: *const BTreeNode, key: usize, tree: anytype) !?u64 {
-        var i: usize = 0;
-        while (i < self.num_keys and key > self.keys[i]) : (i += 1) {}
+        const i = self.findKeyIndex(key);
 
-        if (i < self.num_keys and key == self.keys[i]) {
-            return self.values[i]; // found, return record offset
+        if (i < self.num_keys and self.keys[i] == key) {
+            return self.values[i]; // Found
         }
 
         if (self.is_leaf) {
-            return null; // not found
+            return null; // Not found in leaf
         }
 
         const child = try tree.readNode(self.children_offsets[i]);
         return try child.search(key, tree);
     }
 
-    pub fn deleteLeafOnly(self: *BTreeNode, key: usize, tree: anytype) !bool {
-        var idx: usize = 0;
+    pub fn delete(self: *BTreeNode, key: usize, tree: anytype) !bool {
+        // std.debug.print("Printing internal node\n", .{});
+        // self.print();
 
-        // Find the key or the position where it should be
-        while (idx < self.num_keys and self.keys[idx] < key) : (idx += 1) {}
+        const i = self.findKeyIndex(key);
+
+        if (i < self.num_keys and key == self.keys[i]) {
+            // Key is in this internal node
+            var left_child = try tree.readNode(self.children_offsets[i]);
+            // std.debug.print("Left child for key match:\n", .{});
+            // left_child.print();
+
+            if (left_child.num_keys >= Ti) {
+                // Use predecessor
+                const pred_key = left_child.keys[left_child.num_keys - 1];
+                const pred_offset = left_child.values[left_child.num_keys - 1];
+
+                self.keys[i] = pred_key;
+                self.values[i] = pred_offset;
+                _ = try tree.writeNode(self, true);
+
+                const deleted = try left_child.deleteLeafOnly(pred_key, tree);
+                const left_offset = try tree.writeNode(&left_child, false);
+                self.children_offsets[i] = left_offset;
+                return deleted;
+            }
+
+            var right_child = try tree.readNode(self.children_offsets[i + 1]);
+            // std.debug.print("Right child for key match:\n", .{});
+            // right_child.print();
+
+            if (right_child.num_keys >= Ti) {
+                // Use successor
+                const succ_key = right_child.keys[0];
+                const succ_offset = right_child.values[0];
+
+                self.keys[i] = succ_key;
+                self.values[i] = succ_offset;
+                _ = try tree.writeNode(self, true);
+
+                const deleted = try right_child.deleteLeafOnly(succ_key, tree);
+                const right_offset = try tree.writeNode(&right_child, false);
+                self.children_offsets[i + 1] = right_offset;
+                return deleted;
+            }
+
+            // Both children have MIN_KEYS, merge and delete from merged node
+            //std.debug.print("Merging both children because both have MIN_KEYS\n", .{});
+            try self.mergeChildren(i, &left_child, &right_child, tree);
+            const deleted = try left_child.delete(key, tree);
+            const new_offset = try tree.writeNode(&left_child, false);
+            self.children_offsets[i] = new_offset;
+            return deleted;
+        }
+
+        // Key is not in this node
+        if (!self.is_leaf) {
+            // std.debug.print("Key not in internal node, descending to child {}\n", .{i});
+            var child = try tree.readNode(self.children_offsets[i]);
+
+            // Check for underflow
+            if (child.num_keys == MIN_KEYS) {
+                if (i > 0) {
+                    var left_sibling = try tree.readNode(self.children_offsets[i - 1]);
+                    if (left_sibling.num_keys > MIN_KEYS) {
+                        //std.debug.print("Borrowing from left sibling\n", .{});
+                        try child.borrowFromLeft(i - 1, &left_sibling, self, tree);
+                        _ = try tree.writeNode(&left_sibling, false);
+                        _ = try tree.writeNode(self, true);
+                    } else {
+                        //std.debug.print("Merging with left sibling\n", .{});
+                        try self.mergeChildren(i - 1, &left_sibling, &child, tree);
+                        child = left_sibling;
+                    }
+                } else if (i < self.num_keys) {
+                    var right_sibling = try tree.readNode(self.children_offsets[i + 1]);
+                    if (right_sibling.num_keys > MIN_KEYS) {
+                        //std.debug.print("Borrowing from right sibling\n", .{});
+                        try child.borrowFromRight(i, &right_sibling, self, tree);
+                        _ = try tree.writeNode(&right_sibling, false);
+                        _ = try tree.writeNode(self, true);
+                    } else {
+                        //std.debug.print("Merging with right sibling\n", .{});
+                        try self.mergeChildren(i, &child, &right_sibling, tree);
+                    }
+                }
+            }
+
+            const deleted = try child.delete(key, tree);
+            const new_offset = try tree.writeNode(&child, false);
+            self.children_offsets[i] = new_offset;
+            return deleted;
+        }
+
+        return false; // Key not found in a leaf node
+    }
+
+    pub fn deleteLeafOnly(self: *BTreeNode, key: usize, tree: anytype) !bool {
+        const idx = self.findKeyIndex(key);
 
         if (idx < self.num_keys and self.keys[idx] == key) {
             // ✅ Found the key
@@ -216,105 +333,6 @@ pub const BTreeNode = struct {
         _ = try tree.writeNode(self, true);
 
         return deleted;
-    }
-
-    pub fn delete(self: *BTreeNode, key: usize, tree: anytype) !bool {
-        std.debug.print("Printing internal node\n", .{});
-        self.print();
-
-        var i: usize = 0;
-        while (i < self.num_keys and key > self.keys[i]) : (i += 1) {}
-
-        if (i < self.num_keys and key == self.keys[i]) {
-            // Key is in this internal node
-            var left_child = try tree.readNode(self.children_offsets[i]);
-            std.debug.print("Left child for key match:\n", .{});
-            left_child.print();
-
-            if (left_child.num_keys >= Ti) {
-                // Use predecessor
-                const pred_key = left_child.keys[left_child.num_keys - 1];
-                const pred_offset = left_child.values[left_child.num_keys - 1];
-
-                self.keys[i] = pred_key;
-                self.values[i] = pred_offset;
-                _ = try tree.writeNode(self, true);
-
-                const deleted = try left_child.deleteLeafOnly(pred_key, tree);
-                const left_offset = try tree.writeNode(&left_child, false);
-                self.children_offsets[i] = left_offset;
-                return deleted;
-            }
-
-            var right_child = try tree.readNode(self.children_offsets[i + 1]);
-            std.debug.print("Right child for key match:\n", .{});
-            right_child.print();
-
-            if (right_child.num_keys >= Ti) {
-                // Use successor
-                const succ_key = right_child.keys[0];
-                const succ_offset = right_child.values[0];
-
-                self.keys[i] = succ_key;
-                self.values[i] = succ_offset;
-                _ = try tree.writeNode(self, true);
-
-                const deleted = try right_child.deleteLeafOnly(succ_key, tree);
-                const right_offset = try tree.writeNode(&right_child, false);
-                self.children_offsets[i + 1] = right_offset;
-                return deleted;
-            }
-
-            // Both children have MIN_KEYS, merge and delete from merged node
-            std.debug.print("Merging both children because both have MIN_KEYS\n", .{});
-            try self.mergeChildren(i, &left_child, &right_child, tree);
-            const deleted = try left_child.delete(key, tree);
-            const new_offset = try tree.writeNode(&left_child, false);
-            self.children_offsets[i] = new_offset;
-            return deleted;
-        }
-
-        // Key is not in this node
-        if (!self.is_leaf) {
-            std.debug.print("Key not in internal node, descending to child {}\n", .{i});
-            var child = try tree.readNode(self.children_offsets[i]);
-
-            // Check for underflow
-            if (child.num_keys == MIN_KEYS) {
-                if (i > 0) {
-                    var left_sibling = try tree.readNode(self.children_offsets[i - 1]);
-                    if (left_sibling.num_keys > MIN_KEYS) {
-                        std.debug.print("Borrowing from left sibling\n", .{});
-                        try child.borrowFromLeft(i - 1, &left_sibling, self, tree);
-                        _ = try tree.writeNode(&left_sibling, false);
-                        _ = try tree.writeNode(self, true);
-                    } else {
-                        std.debug.print("Merging with left sibling\n", .{});
-                        try self.mergeChildren(i - 1, &left_sibling, &child, tree);
-                        child = left_sibling;
-                        i -= 1;
-                    }
-                } else if (i < self.num_keys) {
-                    var right_sibling = try tree.readNode(self.children_offsets[i + 1]);
-                    if (right_sibling.num_keys > MIN_KEYS) {
-                        std.debug.print("Borrowing from right sibling\n", .{});
-                        try child.borrowFromRight(i, &right_sibling, self, tree);
-                        _ = try tree.writeNode(&right_sibling, false);
-                        _ = try tree.writeNode(self, true);
-                    } else {
-                        std.debug.print("Merging with right sibling\n", .{});
-                        try self.mergeChildren(i, &child, &right_sibling, tree);
-                    }
-                }
-            }
-
-            const deleted = try child.delete(key, tree);
-            const new_offset = try tree.writeNode(&child, false);
-            self.children_offsets[i] = new_offset;
-            return deleted;
-        }
-
-        return false; // key not found in a leaf node
     }
 
     pub fn mergeChildren(

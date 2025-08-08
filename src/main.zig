@@ -14,18 +14,18 @@ pub fn main() !void {
     try tree.insert(.{ .id = 5, .name = "eve", .email = "eve@example.com", .address = "home" });
 
     std.debug.print("Inserted records.\n", .{});
-    try tree.traverseAllNodes();
+    //try tree.traverseAllNodes();
     // const dataList = try tree.traverse();
     // for (dataList) |value| {
     //     std.debug.print("Id: {d}, Name: {s}, Email: {s} , Address:{s}\n", .{ value.id, value.name, value.email, value.address });
     // }
 
-    // const result = try tree.search(2);
-    // if (result) |record| {
-    //     std.debug.print(" Name: {s}, Email: {s} , Address:{s}\n", .{ record.name, record.email, record.address });
-    // } else {
-    //     std.debug.print("Not found.\n", .{});
-    // }
+    const result = try tree.search(1);
+    if (result) |record| {
+        std.debug.print(" Name: {s}, Email: {s} , Address:{s}\n", .{ record.name, record.email, record.address });
+    } else {
+        std.debug.print("Not found.\n", .{});
+    }
 
     // const deleted = try tree.deleteLeafOnly(2);
     // if (deleted) {
@@ -34,7 +34,7 @@ pub fn main() !void {
     //     std.debug.print("Could not delete key 4.\n", .{});
     // }
 
-    const deleteIndex: usize = 4;
+    const deleteIndex: usize = 3;
 
     const deleted = try tree.delete(deleteIndex);
     if (deleted) {
