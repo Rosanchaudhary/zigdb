@@ -14,7 +14,7 @@ pub fn main() !void {
     try tree.insert(.{ .id = 5, .name = "eve", .email = "eve@example.com", .address = "home" });
 
     std.debug.print("Inserted records.\n", .{});
-     try tree.traverseAllNodes();
+    try tree.traverseAllNodes();
     // const dataList = try tree.traverse();
     // for (dataList) |value| {
     //     std.debug.print("Id: {d}, Name: {s}, Email: {s} , Address:{s}\n", .{ value.id, value.name, value.email, value.address });
@@ -34,11 +34,13 @@ pub fn main() !void {
     //     std.debug.print("Could not delete key 4.\n", .{});
     // }
 
-    const deleted = try tree.delete(1);
+    const deleteIndex: usize = 5;
+
+    const deleted = try tree.delete(deleteIndex);
     if (deleted) {
-        std.debug.print("Deleted key 2 from internal node.\n", .{});
+        std.debug.print("Deleted key {d} from internal node.\n", .{deleteIndex});
     } else {
-        std.debug.print("Key 2 not deleted.\n", .{});
+        std.debug.print("Key {d} not deleted.\n", .{deleteIndex});
     }
 
     //try tree.traverseAllNodes();

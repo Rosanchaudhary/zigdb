@@ -40,15 +40,23 @@ pub fn Btree(comptime V: type) type {
         header: Header,
 
         pub fn init() !Self {
+            // Create files
             var header_file = try std.fs.cwd().createFile("btreeheader.db", .{ .read = true, .truncate = true });
             const record_file = try std.fs.cwd().createFile("btreerecord.db", .{ .read = true, .truncate = true });
             const node_file = try std.fs.cwd().createFile("btreenode.txt", .{ .read = true, .truncate = true });
 
+            // Initialize the root node
             var root = BTreeNodeK.init(true);
-            const offset = try Self.writeNodeStatic(header_file, &root);
 
+            // Write the root node to the NODE FILE, not the header file!
+            const offset = try Self.writeNodeStatic(node_file, &root);
+
+            // Write header to the HEADER FILE
             try header_file.seekTo(0);
-            const header = Header{ .root_node_offset = offset, .record_count = 0 };
+            const header = Header{
+                .root_node_offset = offset,
+                .record_count = 0,
+            };
             try header.write(header_file.writer());
 
             return Self{
