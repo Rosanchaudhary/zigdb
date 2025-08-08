@@ -148,12 +148,8 @@ pub fn Btree(comptime V: type) type {
         }
 
         pub fn writeNode(self: *Self, node: *BTreeNodeK, is_root: bool) !u64 {
-            return try Self.writeNodeWithOffset(self, self.node_file, node, is_root);
-        }
-
-        pub fn writeNodeWithOffset(self: *Self, file: std.fs.File, node: *BTreeNodeK, is_root: bool) !u64 {
-            const seeker = file.seekableStream();
-            const writer = file.writer();
+            const seeker = self.node_file.seekableStream();
+            const writer = self.node_file.writer();
 
             // Always append the node at the end of the file
             const offset = try seeker.getEndPos();
@@ -201,11 +197,9 @@ pub fn Btree(comptime V: type) type {
         pub fn readNode(self: *Self, offset: u64) !BTreeNodeK {
             try self.node_file.seekTo(offset);
             const stat = try self.node_file.stat();
-
-            if (stat.size < node_serialized_size + offset) {
-                const node = BTreeNodeK.init(true);
-                return node;
-            }
+            
+            if (stat.size < node_serialized_size + offset)
+                return error.InvalidOffset;
 
             var buffer: [node_serialized_size]u8 = undefined;
             try self.node_file.reader().readNoEof(&buffer);

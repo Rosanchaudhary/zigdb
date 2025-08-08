@@ -34,7 +34,7 @@ pub fn main() !void {
     //     std.debug.print("Could not delete key 4.\n", .{});
     // }
 
-    const deleteIndex: usize = 3;
+    const deleteIndex: usize = 1;
 
     const deleted = try tree.delete(deleteIndex);
     if (deleted) {
