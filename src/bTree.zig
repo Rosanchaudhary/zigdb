@@ -148,11 +148,15 @@ pub fn Btree(comptime V: type) type {
         }
 
         pub fn writeNode(self: *Self, node: *BTreeNodeK, is_root: bool) !u64 {
+            std.debug.print("writeNode: writing {d} keys: {any}\n", .{ node.num_keys, node.keys[0..node.num_keys] });
+
             const seeker = self.node_file.seekableStream();
             const writer = self.node_file.writer();
 
-            // Always append the node at the end of the file
-            const offset = try seeker.getEndPos();
+            // ✅ Use existing offset if it exists, otherwise append
+            const offset = if (node.offset != 0) node.offset else try seeker.getEndPos();
+            node.offset = offset; // ensure it's always tracked
+
             try seeker.seekTo(offset);
 
             try writer.writeByte(@intFromBool(node.is_leaf));
@@ -170,7 +174,6 @@ pub fn Btree(comptime V: type) type {
                 try writer.writeInt(u64, node.children_offsets[i], .little);
             }
 
-            // If this node is the new root, update the header
             if (is_root) {
                 self.header.root_node_offset = offset;
                 try self.writeHeader();
@@ -197,7 +200,7 @@ pub fn Btree(comptime V: type) type {
         pub fn readNode(self: *Self, offset: u64) !BTreeNodeK {
             try self.node_file.seekTo(offset);
             const stat = try self.node_file.stat();
-            
+
             if (stat.size < node_serialized_size + offset)
                 return error.InvalidOffset;
 
@@ -207,12 +210,14 @@ pub fn Btree(comptime V: type) type {
             const reader = stream.reader();
 
             var node = BTreeNodeK.init(false);
+            node.offset = offset; // <= ADD THIS
             node.is_leaf = try reader.readByte() != 0;
             node.num_keys = try reader.readByte();
 
             for (0..MAX_KEYS) |i| node.keys[i] = try reader.readInt(usize, .little);
             for (0..MAX_KEYS) |i| node.values[i] = try reader.readInt(u64, .little);
             for (0..MAX_CHILDREN) |i| node.children_offsets[i] = try reader.readInt(u64, .little);
+            std.debug.print("readNode: offset = {d}, num_keys = {d}, keys = {any}\n", .{ offset, node.num_keys, node.keys[0..node.num_keys] });
 
             return node;
         }

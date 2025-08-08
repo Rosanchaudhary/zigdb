@@ -7,6 +7,7 @@ const MIN_KEYS = Ti - 1;
 const MAX_CHILDREN = MAX_KEYS + 1;
 
 pub const BTreeNode = struct {
+    offset: u64 = 0, // <= NEW FIELD!
     keys: [MAX_KEYS]usize,
     values: [MAX_KEYS]u64,
     children_offsets: [MAX_CHILDREN]u64,
@@ -15,6 +16,7 @@ pub const BTreeNode = struct {
 
     pub fn init(is_leaf: bool) BTreeNode {
         return BTreeNode{
+            .offset = 0, // <= INIT offset
             .keys = [_]usize{0} ** MAX_KEYS,
             .values = [_]u64{0} ** MAX_KEYS,
             .children_offsets = [_]u64{0} ** MAX_CHILDREN,
@@ -201,6 +203,7 @@ pub const BTreeNode = struct {
 
             if (left_child.num_keys >= MIN_KEYS + 1) {
                 const pred = try self.getPredecessor(i, tree);
+
                 self.keys[i] = pred.key;
                 self.values[i] = pred.value;
                 _ = try tree.writeNode(self, true);
@@ -235,7 +238,7 @@ pub const BTreeNode = struct {
 
         // Key is not in this node
         if (!self.is_leaf) {
-            var child = try tree.readNode(self.children_offsets[i]);
+            var child: BTreeNode = try tree.readNode(self.children_offsets[i]);
 
             // Check for underflow
             if (child.num_keys == MIN_KEYS) {
@@ -250,9 +253,11 @@ pub const BTreeNode = struct {
                         child = left_sibling;
                     }
                 } else if (i < self.num_keys) {
-                    var right_sibling = try tree.readNode(self.children_offsets[i + 1]);
+                    var right_sibling: BTreeNode = try tree.readNode(self.children_offsets[i + 1]);
+
                     if (right_sibling.num_keys > MIN_KEYS) {
                         try child.borrowFromRight(i, &right_sibling, self, tree);
+
                         _ = try tree.writeNode(&right_sibling, false);
                         _ = try tree.writeNode(self, true);
                     } else {
@@ -401,40 +406,52 @@ pub const BTreeNode = struct {
         _ = try tree.writeNode(parent, false);
     }
     pub fn borrowFromRight(
-        self: *BTreeNode,
-        i: usize,
-        right: *BTreeNode,
-        parent: *BTreeNode,
+        self: *BTreeNode, // Left child
+        i: usize, // Index in parent
+        right: *BTreeNode, // Right sibling
+        parent: *BTreeNode, // Parent node
         tree: anytype,
     ) !void {
-        // Move key from parent to self
+        // Log state before
+        std.debug.print("Borrowing from right sibling at index {d}\n", .{i});
+        std.debug.print("Before borrow:\n  self.keys: {any}\n  right.keys: {any}\n  parent.keys: {any}\n", .{ self.keys[0..self.num_keys], right.keys[0..right.num_keys], parent.keys[0..parent.num_keys] });
+
+        // Step 1: Move parent's separating key to self (append at the end)
         self.keys[self.num_keys] = parent.keys[i];
         self.values[self.num_keys] = parent.values[i];
+
         if (!self.is_leaf) {
+            // Move the first child of right to self's child list
             self.children_offsets[self.num_keys + 1] = right.children_offsets[0];
         }
 
-        // Move first key from right to parent
+        // Step 2: Move right's first key to parent
         parent.keys[i] = right.keys[0];
         parent.values[i] = right.values[0];
 
-        // Shift right's keys and values left
+        // Step 3: Shift right's keys and values left
         for (0..right.num_keys - 1) |j| {
             right.keys[j] = right.keys[j + 1];
             right.values[j] = right.values[j + 1];
         }
+
         if (!right.is_leaf) {
+            // Shift right's children_offsets left
             for (0..right.num_keys) |j| {
                 right.children_offsets[j] = right.children_offsets[j + 1];
             }
         }
 
+        // Step 4: Update key counts
         self.num_keys += 1;
         right.num_keys -= 1;
 
-        // ✨ Write modified nodes back
+        // Step 5: Write all modified nodes
         _ = try tree.writeNode(right, false);
         _ = try tree.writeNode(self, false);
         _ = try tree.writeNode(parent, false);
+
+        // Log state after
+        std.debug.print("After borrow:\n  self.keys: {any}\n  right.keys: {any}\n  parent.keys: {any}\n", .{ self.keys[0..self.num_keys], right.keys[0..right.num_keys], parent.keys[0..parent.num_keys] });
     }
 };
