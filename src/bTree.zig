@@ -38,9 +38,9 @@ pub fn Btree(comptime V: type) type {
         record_file: std.fs.File,
         node_file: std.fs.File,
         header: Header,
-        allocator:std.mem.Allocator,
+        allocator: std.mem.Allocator,
 
-        pub fn init(allocator:std.mem.Allocator) !Self {
+        pub fn init(allocator: std.mem.Allocator) !Self {
             // Create files
             var header_file = try std.fs.cwd().createFile("btreeheader.db", .{ .read = true, .truncate = true });
             const record_file = try std.fs.cwd().createFile("btreerecord.db", .{ .read = true, .truncate = true });
@@ -60,20 +60,13 @@ pub fn Btree(comptime V: type) type {
             };
             try header.write(header_file.writer());
 
-            return Self{
-                .header_file = header_file,
-                .record_file = record_file,
-                .node_file = node_file,
-                .header = header,
-                .allocator = allocator
-            };
+            return Self{ .header_file = header_file, .record_file = record_file, .node_file = node_file, .header = header, .allocator = allocator };
         }
 
         pub fn deinit(self: *Self) void {
             self.header_file.close();
             self.record_file.close();
             self.node_file.close();
-            
         }
 
         // pub fn insertRecord(self: *Self, value: V) !void {
@@ -141,10 +134,6 @@ pub fn Btree(comptime V: type) type {
                         @compileError("Unsupported field type in writeRecord.");
                     },
                 }
-
-                // Make sure it's []u8 for now — or add type handling
-                // try writer.writeInt(u64, field_value.len, .little);
-                // try writer.writeAll(field_value);
             }
 
             return offset;
@@ -228,7 +217,6 @@ pub fn Btree(comptime V: type) type {
         }
 
         pub fn readRecord(self: *Self, offset: u64) !V {
-            
             const seeker = self.record_file.seekableStream();
             const reader = self.record_file.reader();
 
@@ -283,6 +271,47 @@ pub fn Btree(comptime V: type) type {
                 return try self.readRecord(offset);
             } else {
                 return null;
+            }
+        }
+//this update works when we have same length of previous data
+        pub fn updateById(self: *Self, key: usize, newValue: V) !bool {
+            const root = try self.readNode(self.header.root_node_offset);
+            const offset_opt = try root.search(key, self);
+            if (offset_opt) |offset| {
+                const seeker = self.record_file.seekableStream();
+                try seeker.seekTo(offset);
+                const writer = self.record_file.writer();
+
+                const typeInfo = @typeInfo(V);
+                const structInfo = typeInfo.@"struct";
+
+                inline for (structInfo.fields) |field| {
+                    const field_value = @field(newValue, field.name);
+                    const field_type = field.type;
+
+                    switch (@typeInfo(field_type)) {
+                        .pointer => |ptrInfo| {
+                            if (ptrInfo.child == u8 and ptrInfo.size == .slice) {
+                                try writer.writeInt(u64, field_value.len, .little);
+                                try writer.writeAll(field_value);
+                            } else {
+                                @compileError("Only []u8 slices are supported for pointer types.");
+                            }
+                        },
+                        .int => {
+                            try writer.writeInt(field_type, field_value, .little);
+                        },
+                        .bool => {
+                            try writer.writeByte(if (field_value) 1 else 0);
+                        },
+                        else => {
+                            @compileError("Unsupported field type in updateById.");
+                        },
+                    }
+                }
+                return true;
+            } else {
+                return false;
             }
         }
 

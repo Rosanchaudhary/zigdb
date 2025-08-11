@@ -32,22 +32,10 @@ pub fn main() !void {
 
     std.debug.print("Inserted records.==============================\n", .{});
     // try tree.traverseAllNodes();
+
+    _ = try tree.updateById(2, .{ .id = 2, .name = "bob", .email = "nin@example.com", .address = "vill" });
     const dataList = try tree.traverse();
     for (dataList) |value| {
-        std.debug.print("Id: {d}, Name: {s}, Email: {s} , Address:{s}\n", .{ value.id, value.name, value.email, value.address });
-    }
-
-    const deleteIndex: usize = 4;
-
-    const deleted = try tree.delete(deleteIndex);
-    if (deleted) {
-        std.debug.print("Deleted key {d} from internal node.\n", .{deleteIndex});
-    } else {
-        std.debug.print("Key {d} not deleted.\n", .{deleteIndex});
-    }
-
-    const newDataList = try tree.traverse();
-    for (newDataList) |value| {
         std.debug.print("Id: {d}, Name: {s}, Email: {s} , Address:{s}\n", .{ value.id, value.name, value.email, value.address });
     }
 }

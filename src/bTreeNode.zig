@@ -184,7 +184,7 @@ pub fn BtreeNode(comptime V: type) type {
             return try records.toOwnedSlice();
         }
 
-        pub fn search(self: *const Self, key: usize, tree: BTreeType) !?u64 {
+        pub fn search(self: *const Self, key: usize, tree: *BTreeType) !?u64 {
             const i = self.findKeyIndex(key);
 
             if (i < self.num_keys and self.keys[i] == key) {
@@ -198,6 +198,7 @@ pub fn BtreeNode(comptime V: type) type {
             const child = try tree.readNode(self.children_offsets[i]);
             return try child.search(key, tree);
         }
+
 
         pub fn delete(self: *Self, key: usize, tree: *BTreeType) !bool {
             const i = self.findKeyIndex(key);
@@ -376,7 +377,7 @@ pub fn BtreeNode(comptime V: type) type {
             left: *Self,
             parent: *Self,
             tree: *BTreeType,
-        ) !void {
+        ) !void { 
             // Shift self's keys and values right
             var j = self.num_keys;
             while (j > 0) : (j -= 1) {
