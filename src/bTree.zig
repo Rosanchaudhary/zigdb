@@ -1,6 +1,6 @@
 // bTree.zig
 const std = @import("std");
-const BTreeNode = @import("bTreeNode.zig").BTreeNode;
+const BTreeNode = @import("bTreeNode.zig").BtreeNode;
 const Ti = 2;
 const MAX_KEYS = 2 * Ti - 1;
 const MAX_CHILDREN = MAX_KEYS + 1;
@@ -32,7 +32,7 @@ const Header = struct {
 pub fn Btree(comptime V: type) type {
     return struct {
         const Self = @This();
-        const BTreeNodeK = BTreeNode;
+        const BTreeNodeK = BTreeNode(V);
 
         header_file: std.fs.File,
         record_file: std.fs.File,
