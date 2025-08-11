@@ -273,8 +273,8 @@ pub fn Btree(comptime V: type) type {
                 return null;
             }
         }
-//this update works when we have same length of previous data
-        pub fn updateById(self: *Self, key: usize, newValue: V) !bool {
+        //this update works when we have same length of previous data
+        pub fn updateByIdFiedSize(self: *Self, key: usize, newValue: V) !bool {
             const root = try self.readNode(self.header.root_node_offset);
             const offset_opt = try root.search(key, self);
             if (offset_opt) |offset| {
@@ -309,6 +309,24 @@ pub fn Btree(comptime V: type) type {
                         },
                     }
                 }
+                return true;
+            } else {
+                return false;
+            }
+        }
+
+
+        pub fn updateById(self: *Self, key: usize, newValue: V) !bool {
+            const root = try self.readNode(self.header.root_node_offset);
+            const search_result = try root.searchNodeOffsetAndIndex(key,self);
+
+            if (search_result) |result| {
+                var node = try self.readNode(result.node_offset);
+                const new_offset = try self.writeRecord(newValue);
+
+                node.values[result.index] = new_offset;
+
+                _ = try self.writeNode(&node, false);
                 return true;
             } else {
                 return false;

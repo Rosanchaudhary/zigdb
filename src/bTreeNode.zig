@@ -199,6 +199,23 @@ pub fn BtreeNode(comptime V: type) type {
             return try child.search(key, tree);
         }
 
+        pub fn searchNodeOffsetAndIndex(self: *const Self, key: usize, tree: *BTreeType) !?struct {
+            node_offset: u64,
+            index: usize,
+        } {
+            const i = self.findKeyIndex(key);
+
+            if (i < self.num_keys and self.keys[i] == key) {
+                return .{ .node_offset = self.offset, .index = i };
+            }
+
+            if (self.is_leaf) {
+                return null;
+            }
+
+            const child = try tree.readNode(self.children_offsets[i]);
+            return try child.searchNodeOffsetAndIndex(key, tree);
+        }
 
         pub fn delete(self: *Self, key: usize, tree: *BTreeType) !bool {
             const i = self.findKeyIndex(key);
@@ -377,7 +394,7 @@ pub fn BtreeNode(comptime V: type) type {
             left: *Self,
             parent: *Self,
             tree: *BTreeType,
-        ) !void { 
+        ) !void {
             // Shift self's keys and values right
             var j = self.num_keys;
             while (j > 0) : (j -= 1) {

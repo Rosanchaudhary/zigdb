@@ -33,7 +33,7 @@ pub fn main() !void {
     std.debug.print("Inserted records.==============================\n", .{});
     // try tree.traverseAllNodes();
 
-    _ = try tree.updateById(2, .{ .id = 2, .name = "bob", .email = "nin@example.com", .address = "vill" });
+    _ = try tree.updateById(2, .{ .id = 2, .name = "bob marley do", .email = "nin@example.com", .address = "vill" });
     const dataList = try tree.traverse();
     for (dataList) |value| {
         std.debug.print("Id: {d}, Name: {s}, Email: {s} , Address:{s}\n", .{ value.id, value.name, value.email, value.address });
