@@ -1,58 +1,52 @@
 const std = @import("std");
-const testing = std.testing;
-
-const Record = struct {
-    name: []const u8,
-    email: []const u8,
-};
-
+const expect = std.testing.expect;
 const Btree = @import("bTree.zig").Btree;
 
-test "insert and search records in BTree" {
-    var tree = Btree(Record).init();
+pub const Record = struct {
+    id: usize,
+    name: []const u8,
+    email: []const u8,
+    address: []const u8,
+};
+
+test "insert, search and delete records from Btree" {
+    var tree = try Btree(Record).init();
     defer tree.deinit();
 
-    tree.insertRecord(.{ .name = "alice", .email = "alice@example.com" });
-    tree.insertRecord(.{ .name = "bob", .email = "bob@example.com" });
+    // Insert records
+    try tree.insert(.{ .id = 1, .name = "alice", .email = "alice@example.com", .address = "home" });
+    try tree.insert(.{ .id = 2, .name = "bob", .email = "bob@example.com", .address = "home" });
+    try tree.insert(.{ .id = 3, .name = "carol", .email = "carol@example.com", .address = "home" });
 
-    try testing.expect(tree.searchTree(0) != null);
-    try testing.expectEqualStrings("alice", tree.searchTree(0).?.name);
-    try testing.expectEqualStrings("bob", tree.searchTree(1).?.name);
-}
+    // Search existing record
+    const found1 = try tree.search(1);
+    std.debug.print("Record found {s}\n", .{found1.?.name});
+    try expect(found1 != null);
+    try expect(std.mem.eql(u8, found1.?.name, "alice"));
+    try expect(std.mem.eql(u8, found1.?.email, "alice@example.com"));
+    try expect(std.mem.eql(u8, found1.?.address, "home"));
 
-test "search non-existent record" {
-    var tree = Btree(Record).init();
-    defer tree.deinit();
+    // Search non-existing record
+    const not_found = try tree.search(999);
+    try expect(not_found == null);
 
-    tree.insertRecord(.{ .name = "alice", .email = "alice@example.com" });
+    // Delete existing record
+    const deleted = try tree.delete(1);
+    try expect(deleted);
 
-    const result = tree.searchTree(99);
-    try testing.expect(result == null);
-}
+    // Ensure deleted record is gone
+    const should_be_null = try tree.search(1);
+    try expect(should_be_null == null);
 
-test "delete record and search again" {
-    var tree = Btree(Record).init();
-    defer tree.deinit();
+    // Delete another record
+    const deleted2 = try tree.delete(2);
+    try expect(deleted2);
 
-    tree.insertRecord(.{ .name = "carol", .email = "carol@example.com" });
+    // Final deletion
+    const deleted3 = try tree.delete(3);
+    try expect(deleted3);
 
-    try testing.expect(tree.searchTree(0) != null);
-    tree.remove(0);
-    try testing.expect(tree.searchTree(0) == null);
-}
-
-test "multiple insertions and traversals" {
-    var tree = Btree(Record).init();
-    defer tree.deinit();
-
-    tree.insertRecord(.{ .name = "dave", .email = "dave@example.com" });
-    tree.insertRecord(.{ .name = "eve", .email = "eve@example.com" });
-    tree.insertRecord(.{ .name = "frank", .email = "frank@example.com" });
-
-    // This just checks if traverse works without crashing.
-    // Consider adding a way to collect values in an array for full testability.
-    tree.traverse();
-
-    try testing.expect(tree.searchTree(2) != null);
-    try testing.expectEqualStrings("frank", tree.searchTree(2).?.name);
+    // Ensure all records are deleted
+    try expect((try tree.search(2)) == null);
+    try expect((try tree.search(3)) == null);
 }

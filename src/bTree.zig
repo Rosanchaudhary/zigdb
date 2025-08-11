@@ -148,8 +148,6 @@ pub fn Btree(comptime V: type) type {
         }
 
         pub fn writeNode(self: *Self, node: *BTreeNodeK, is_root: bool) !u64 {
-            std.debug.print("writeNode: writing {d} keys: {any}\n", .{ node.num_keys, node.keys[0..node.num_keys] });
-
             const seeker = self.node_file.seekableStream();
             const writer = self.node_file.writer();
 
@@ -217,7 +215,6 @@ pub fn Btree(comptime V: type) type {
             for (0..MAX_KEYS) |i| node.keys[i] = try reader.readInt(usize, .little);
             for (0..MAX_KEYS) |i| node.values[i] = try reader.readInt(u64, .little);
             for (0..MAX_CHILDREN) |i| node.children_offsets[i] = try reader.readInt(u64, .little);
-            std.debug.print("readNode: offset = {d}, num_keys = {d}, keys = {any}\n", .{ offset, node.num_keys, node.keys[0..node.num_keys] });
 
             return node;
         }
@@ -305,7 +302,7 @@ pub fn Btree(comptime V: type) type {
 
             // Always write header in case root offset changed
             try self.writeHeader();
-
+            std.debug.print("The value of deleted is {}\n", .{deleted});
             return deleted;
         }
     };

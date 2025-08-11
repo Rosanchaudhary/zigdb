@@ -198,15 +198,21 @@ pub const BTreeNode = struct {
     pub fn delete(self: *BTreeNode, key: usize, tree: anytype) !bool {
         const i = self.findKeyIndex(key);
 
+        // Case 1: key is present in this node
         if (i < self.num_keys and key == self.keys[i]) {
-            var left_child: BTreeNode = try tree.readNode(self.children_offsets[i]);
+            // If this node is a leaf, delete directly from the leaf.
+            if (self.is_leaf) {
+                return self.deleteInLeafPath(key, tree);
+            }
 
+            // Otherwise node is internal. Try predecessor first.
+            var left_child: BTreeNode = try tree.readNode(self.children_offsets[i]);
             if (left_child.num_keys >= MIN_KEYS + 1) {
                 const pred = try self.getPredecessor(i, tree);
-
                 self.keys[i] = pred.key;
                 self.values[i] = pred.value;
-                _ = try tree.writeNode(self, true);
+                // write parent but do not claim it's the root here
+                _ = try tree.writeNode(self, false);
 
                 const deleted = try left_child.deleteInLeafPath(pred.key, tree);
                 const left_offset = try tree.writeNode(&left_child, false);
@@ -215,12 +221,11 @@ pub const BTreeNode = struct {
             }
 
             var right_child: BTreeNode = try tree.readNode(self.children_offsets[i + 1]);
-
             if (right_child.num_keys >= MIN_KEYS + 1) {
                 const succ = try self.getSuccessor(i, tree);
                 self.keys[i] = succ.key;
                 self.values[i] = succ.value;
-                _ = try tree.writeNode(self, true);
+                _ = try tree.writeNode(self, false);
 
                 const deleted = try right_child.deleteInLeafPath(succ.key, tree);
                 const right_offset = try tree.writeNode(&right_child, false);
@@ -228,7 +233,7 @@ pub const BTreeNode = struct {
                 return deleted;
             }
 
-            // Merge case remains the same
+            // Neither child has extra keys: merge and recurse into merged child
             try self.mergeChildren(i, &left_child, &right_child, tree);
             const deleted = try left_child.delete(key, tree);
             const new_offset = try tree.writeNode(&left_child, false);
@@ -236,46 +241,45 @@ pub const BTreeNode = struct {
             return deleted;
         }
 
-        // Key is not in this node
-        if (!self.is_leaf) {
-            var child: BTreeNode = try tree.readNode(self.children_offsets[i]);
-
-            // Check for underflow
-            if (child.num_keys == MIN_KEYS) {
-                if (i > 0) {
-                    var left_sibling = try tree.readNode(self.children_offsets[i - 1]);
-                    if (left_sibling.num_keys > MIN_KEYS) {
-                        try child.borrowFromLeft(i - 1, &left_sibling, self, tree);
-                        _ = try tree.writeNode(&left_sibling, false);
-                        _ = try tree.writeNode(self, true);
-                    } else {
-                        try self.mergeChildren(i - 1, &left_sibling, &child, tree);
-                        child = left_sibling;
-                    }
-                } else if (i < self.num_keys) {
-                    var right_sibling: BTreeNode = try tree.readNode(self.children_offsets[i + 1]);
-
-                    if (right_sibling.num_keys > MIN_KEYS) {
-                        try child.borrowFromRight(i, &right_sibling, self, tree);
-
-                        _ = try tree.writeNode(&right_sibling, false);
-                        _ = try tree.writeNode(self, true);
-                    } else {
-                        try self.mergeChildren(i, &child, &right_sibling, tree);
-                    }
-                }
-            }
-
-            const deleted = try child.delete(key, tree);
-            const new_offset = try tree.writeNode(&child, false);
-            self.children_offsets[i] = new_offset;
-            return deleted;
+        // Case 2: key not in this node
+        if (self.is_leaf) {
+            // key not found in leaf
+            return false;
         }
 
-        return false; // Key not found in a leaf node
+        var child: BTreeNode = try tree.readNode(self.children_offsets[i]);
+
+        // Ensure child has at least MIN_KEYS + 1 before recursing into it
+        if (child.num_keys == MIN_KEYS) {
+            if (i > 0) {
+                var left_sibling = try tree.readNode(self.children_offsets[i - 1]);
+                if (left_sibling.num_keys > MIN_KEYS) {
+                    try child.borrowFromLeft(i - 1, &left_sibling, self, tree);
+                    _ = try tree.writeNode(&left_sibling, false);
+                    _ = try tree.writeNode(self, false);
+                } else {
+                    try self.mergeChildren(i - 1, &left_sibling, &child, tree);
+                    child = left_sibling;
+                }
+            } else if (i < self.num_keys) {
+                var right_sibling: BTreeNode = try tree.readNode(self.children_offsets[i + 1]);
+                if (right_sibling.num_keys > MIN_KEYS) {
+                    try child.borrowFromRight(i, &right_sibling, self, tree);
+                    _ = try tree.writeNode(&right_sibling, false);
+                    _ = try tree.writeNode(self, false);
+                } else {
+                    try self.mergeChildren(i, &child, &right_sibling, tree);
+                }
+            }
+        }
+
+        const deleted = try child.delete(key, tree);
+        const new_offset = try tree.writeNode(&child, false);
+        self.children_offsets[i] = new_offset;
+        return deleted;
     }
 
-    fn getPredecessor(self: *BTreeNode, i: usize, tree: anytype) !struct { key: usize, value: usize } {
+    fn getPredecessor(self: *BTreeNode, i: usize, tree: anytype) !struct { key: usize, value: u64 } {
         var cur = try tree.readNode(self.children_offsets[i]);
         while (!cur.is_leaf) {
             cur = try tree.readNode(cur.children_offsets[cur.num_keys]);
@@ -283,7 +287,7 @@ pub const BTreeNode = struct {
         return .{ .key = cur.keys[cur.num_keys - 1], .value = cur.values[cur.num_keys - 1] };
     }
 
-    fn getSuccessor(self: *BTreeNode, i: usize, tree: anytype) !struct { key: usize, value: usize } {
+    fn getSuccessor(self: *BTreeNode, i: usize, tree: anytype) !struct { key: usize, value: u64 } {
         var cur = try tree.readNode(self.children_offsets[i + 1]);
         while (!cur.is_leaf) {
             cur = try tree.readNode(cur.children_offsets[0]);
@@ -292,26 +296,23 @@ pub const BTreeNode = struct {
     }
 
     pub fn deleteInLeafPath(self: *BTreeNode, key: usize, tree: anytype) !bool {
-        std.debug.assert(self.is_leaf); // Enforce use only on leaf nodes
+        std.debug.assert(self.is_leaf);
 
         const idx = self.findKeyIndex(key);
-
         if (idx < self.num_keys and self.keys[idx] == key) {
-            // Shift keys/values left to remove the key
-            for (idx..self.num_keys - 1) |i| {
-                self.keys[i] = self.keys[i + 1];
-                self.values[i] = self.values[i + 1];
+            // shift left
+            for (idx..self.num_keys - 1) |k| {
+                self.keys[k] = self.keys[k + 1];
+                self.values[k] = self.values[k + 1];
             }
-
             self.keys[self.num_keys - 1] = 0;
             self.values[self.num_keys - 1] = 0;
             self.num_keys -= 1;
 
-            _ = try tree.writeNode(self, true);
+            _ = try tree.writeNode(self, false); // <<-- false
             return true;
         }
-
-        return false; // Key not found in this leaf
+        return false;
     }
 
     pub fn mergeChildren(
@@ -412,9 +413,6 @@ pub const BTreeNode = struct {
         parent: *BTreeNode, // Parent node
         tree: anytype,
     ) !void {
-        // Log state before
-        std.debug.print("Borrowing from right sibling at index {d}\n", .{i});
-        std.debug.print("Before borrow:\n  self.keys: {any}\n  right.keys: {any}\n  parent.keys: {any}\n", .{ self.keys[0..self.num_keys], right.keys[0..right.num_keys], parent.keys[0..parent.num_keys] });
 
         // Step 1: Move parent's separating key to self (append at the end)
         self.keys[self.num_keys] = parent.keys[i];
@@ -450,8 +448,5 @@ pub const BTreeNode = struct {
         _ = try tree.writeNode(right, false);
         _ = try tree.writeNode(self, false);
         _ = try tree.writeNode(parent, false);
-
-        // Log state after
-        std.debug.print("After borrow:\n  self.keys: {any}\n  right.keys: {any}\n  parent.keys: {any}\n", .{ self.keys[0..self.num_keys], right.keys[0..right.num_keys], parent.keys[0..parent.num_keys] });
     }
 };
