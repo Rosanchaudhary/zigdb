@@ -4,7 +4,9 @@ const Btree = @import("bTree.zig").Btree;
 pub const Record = struct { id: usize, name: []const u8, email: []const u8, address: []const u8 };
 
 pub fn main() !void {
-    var tree = try Btree(Record).init();
+    const allocator = std.heap.page_allocator;
+    var tree = try Btree(Record).init(allocator);
+
     defer tree.deinit();
 
     try tree.insert(.{ .id = 1, .name = "alice", .email = "alice@example.com", .address = "home" });
@@ -27,8 +29,7 @@ pub fn main() !void {
     try tree.insert(.{ .id = 18, .name = "yves", .email = "yves@example.com", .address = "apartment" });
     try tree.insert(.{ .id = 19, .name = "quinn", .email = "quinn@example.com", .address = "shed" });
     try tree.insert(.{ .id = 20, .name = "nina", .email = "nina@example.com", .address = "villa" });
-    
-    
+
     std.debug.print("Inserted records.==============================\n", .{});
     // try tree.traverseAllNodes();
     const dataList = try tree.traverse();

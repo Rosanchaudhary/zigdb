@@ -38,8 +38,9 @@ pub fn Btree(comptime V: type) type {
         record_file: std.fs.File,
         node_file: std.fs.File,
         header: Header,
+        allocator:std.mem.Allocator,
 
-        pub fn init() !Self {
+        pub fn init(allocator:std.mem.Allocator) !Self {
             // Create files
             var header_file = try std.fs.cwd().createFile("btreeheader.db", .{ .read = true, .truncate = true });
             const record_file = try std.fs.cwd().createFile("btreerecord.db", .{ .read = true, .truncate = true });
@@ -49,7 +50,7 @@ pub fn Btree(comptime V: type) type {
             var root = BTreeNodeK.init(true);
 
             // Write the root node to the NODE FILE, not the header file!
-            const offset = try Self.writeNodeStatic(node_file, &root);
+            const offset = try Self.writeNodeStatic(&node_file, &root);
 
             // Write header to the HEADER FILE
             try header_file.seekTo(0);
@@ -64,6 +65,7 @@ pub fn Btree(comptime V: type) type {
                 .record_file = record_file,
                 .node_file = node_file,
                 .header = header,
+                .allocator = allocator
             };
         }
 
@@ -71,6 +73,7 @@ pub fn Btree(comptime V: type) type {
             self.header_file.close();
             self.record_file.close();
             self.node_file.close();
+            
         }
 
         // pub fn insertRecord(self: *Self, value: V) !void {
@@ -180,7 +183,7 @@ pub fn Btree(comptime V: type) type {
             return offset;
         }
 
-        pub fn writeNodeStatic(file: std.fs.File, node: *BTreeNodeK) !u64 {
+        pub fn writeNodeStatic(file: *const std.fs.File, node: *BTreeNodeK) !u64 {
             const seeker = file.seekableStream();
             const writer = file.writer();
             const offset = try seeker.getPos();
@@ -220,13 +223,12 @@ pub fn Btree(comptime V: type) type {
         }
 
         pub fn traverse(self: *Self) ![]V {
-            const allocator = std.heap.page_allocator;
             const root = try self.readNode(self.header.root_node_offset);
-            return try root.traverse(self, allocator);
+            return try root.traverse(self, self.allocator);
         }
 
         pub fn readRecord(self: *Self, offset: u64) !V {
-            const allocator = std.heap.page_allocator;
+            
             const seeker = self.record_file.seekableStream();
             const reader = self.record_file.reader();
 
@@ -245,7 +247,7 @@ pub fn Btree(comptime V: type) type {
                         // Handle []u8 only
                         if (ptrInfo.size == .slice and ptrInfo.child == u8) {
                             const field_len = try reader.readInt(u64, .little);
-                            const field_buf = try allocator.alloc(u8, field_len);
+                            const field_buf = try self.allocator.alloc(u8, field_len);
                             try reader.readNoEof(field_buf);
                             @field(result, field.name) = field_buf;
                         } else {
