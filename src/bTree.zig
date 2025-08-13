@@ -1,6 +1,7 @@
 // bTree.zig
 const std = @import("std");
 const BTreeNode = @import("bTreeNode.zig").BtreeNode;
+const RecordMetadata = @import("recordStruct.zig").RecordMetadata;
 const Ti = 2;
 const MAX_KEYS = 2 * Ti - 1;
 const MAX_CHILDREN = MAX_KEYS + 1;
@@ -33,6 +34,7 @@ pub fn Btree(comptime V: type) type {
     return struct {
         const Self = @This();
         const BTreeNodeK = BTreeNode(V);
+        const RecordMetadataType = RecordMetadata(V);
 
         header_file: std.fs.File,
         record_file: std.fs.File,
@@ -43,8 +45,8 @@ pub fn Btree(comptime V: type) type {
         pub fn init(allocator: std.mem.Allocator) !Self {
             // Create files
             var header_file = try std.fs.cwd().createFile("btreeheader.db", .{ .read = true, .truncate = true });
-            const record_file = try std.fs.cwd().createFile("btreerecord.db", .{ .read = true, .truncate = true });
-            const node_file = try std.fs.cwd().createFile("btreenode.txt", .{ .read = true, .truncate = true });
+            const record_file = try std.fs.cwd().createFile("btreerecord.text", .{ .read = true, .truncate = true });
+            const node_file = try std.fs.cwd().createFile("btreenode.db", .{ .read = true, .truncate = true });
 
             // Initialize the root node
             var root = BTreeNodeK.init(true);
@@ -69,15 +71,11 @@ pub fn Btree(comptime V: type) type {
             self.node_file.close();
         }
 
-        // pub fn insertRecord(self: *Self, value: V) !void {
-        //     const key = @as(usize, self.header.record_count);
-        //     try self.insert(key, value);
-        //     self.header.record_count += 1;
-        //     try self.writeHeader();
-        // }
-
         pub fn insert(self: *Self, value: V) !void {
-            const record_offset = try self.writeRecord(value);
+            // ---- Write metadata fields ----
+            const meta = try RecordMetadata(V).init(value.id, value, self.allocator);
+
+            const record_offset = try self.writeRecord(meta);
             var root = try self.readNode(self.header.root_node_offset);
 
             if (root.num_keys == MAX_KEYS) {
@@ -96,23 +94,38 @@ pub fn Btree(comptime V: type) type {
             }
         }
 
-        fn writeHeader(self: *Self) !void {
-            try self.header_file.seekTo(0);
-            try self.header.write(self.header_file.writer());
-        }
-
-        fn writeRecord(self: *Self, value: V) !u64 {
+        fn writeRecord(self: *Self, meta: RecordMetadataType) !u64 {
             const seeker = self.record_file.seekableStream();
             try seeker.seekTo(try seeker.getEndPos());
             const writer = self.record_file.writer();
             const offset = try seeker.getPos();
 
-            const typeInfo = @typeInfo(V);
-            const structInfo = typeInfo.@"struct";
+            // id
+            try writer.writeInt(@TypeOf(meta.id), meta.id, .little);
 
-            inline for (structInfo.fields) |field| {
-                // Access the field value from `value`
-                const field_value = @field(value, field.name);
+            //version
+            try writer.writeInt(@TypeOf(meta.version), meta.version, .little);
+            // previous_versions_offsets (slice)
+            try writer.writeInt(u64, meta.previous_versions_offsets.len, .little);
+            for (meta.previous_versions_offsets) |off| {
+                try writer.writeInt(u64, off, .little);
+            }
+
+            // created_at
+            try writer.writeInt(@TypeOf(meta.created_at), meta.created_at, .little);
+
+            // updated_at
+            try writer.writeInt(@TypeOf(meta.updated_at), meta.updated_at, .little);
+
+            // deleted flag
+            try writer.writeByte(if (meta.deleted) 1 else 0);
+
+            // ---- Write actual Record data ----
+            const recordTypeInfo = @typeInfo(@TypeOf(meta.data));
+            const recordStructInfo = recordTypeInfo.@"struct";
+
+            inline for (recordStructInfo.fields) |field| {
+                const field_value = @field(meta.data, field.name);
                 const field_type = field.type;
 
                 switch (@typeInfo(field_type)) {
@@ -121,7 +134,7 @@ pub fn Btree(comptime V: type) type {
                             try writer.writeInt(u64, field_value.len, .little);
                             try writer.writeAll(field_value);
                         } else {
-                            @compileError("Only []u8 slices are supported for pointer types.");
+                            @compileError("Only []u8 slices are supported for pointer types in Record.");
                         }
                     },
                     .int => {
@@ -131,12 +144,71 @@ pub fn Btree(comptime V: type) type {
                         try writer.writeByte(if (field_value) 1 else 0);
                     },
                     else => {
-                        @compileError("Unsupported field type in writeRecord.");
+                        @compileError("Unsupported field type in Record.");
                     },
                 }
             }
 
             return offset;
+        }
+
+        pub fn readRecord(self: *Self, offset: u64) !RecordMetadataType {
+            const seeker = self.record_file.seekableStream();
+            try seeker.seekTo(offset);
+            const reader = self.record_file.reader();
+
+            var meta: RecordMetadataType = undefined;
+
+            // ---- Read metadata ----
+            meta.id = try reader.readInt(@TypeOf(meta.id), .little);
+            meta.version = try reader.readInt(@TypeOf(meta.version), .little);
+
+            // previous_versions_offsets slice
+            const prev_len = try reader.readInt(u64, .little);
+            meta.previous_versions_offsets = try self.allocator.alloc(u64, prev_len);
+            for (meta.previous_versions_offsets) |*off| {
+                off.* = try reader.readInt(u64, .little);
+            }
+
+            meta.created_at = try reader.readInt(@TypeOf(meta.created_at), .little);
+            meta.updated_at = try reader.readInt(@TypeOf(meta.updated_at), .little);
+
+            const deleted_flag = try reader.readByte();
+            meta.deleted = (deleted_flag != 0);
+
+            // ---- Read Record data ----
+            var record: V = undefined;
+            const recordTypeInfo = @typeInfo(V);
+            const recordStructInfo = recordTypeInfo.@"struct";
+
+            inline for (recordStructInfo.fields) |field| {
+                const field_type = field.type;
+                switch (@typeInfo(field_type)) {
+                    .pointer => |ptrInfo| {
+                        if (ptrInfo.child == u8 and ptrInfo.size == .slice) {
+                            const len = try reader.readInt(u64, .little);
+                            const buf = try self.allocator.alloc(u8, len);
+                            try reader.readNoEof(buf);
+                            @field(record, field.name) = buf;
+                        } else {
+                            @compileError("Only []u8 slices are supported for pointer types in Record.");
+                        }
+                    },
+                    .int => {
+                        @field(record, field.name) = try reader.readInt(field_type, .little);
+                    },
+                    .bool => {
+                        @field(record, field.name) = (try reader.readByte() != 0);
+                    },
+                    else => {
+                        @compileError("Unsupported field type in Record.");
+                    },
+                }
+            }
+
+            meta.data = record;
+
+            return meta; // Only return the Record for now
         }
 
         pub fn writeNode(self: *Self, node: *BTreeNodeK, is_root: bool) !u64 {
@@ -211,52 +283,14 @@ pub fn Btree(comptime V: type) type {
             return node;
         }
 
-        pub fn traverse(self: *Self) ![]V {
+        pub fn traverse(self: *Self) ![]RecordMetadataType {
             const root = try self.readNode(self.header.root_node_offset);
             return try root.traverse(self, self.allocator);
         }
 
-        pub fn readRecord(self: *Self, offset: u64) !V {
-            const seeker = self.record_file.seekableStream();
-            const reader = self.record_file.reader();
-
-            try seeker.seekTo(offset);
-
-            const typeInfo = @typeInfo(V);
-            const structInfo = typeInfo.@"struct";
-
-            var result: V = undefined;
-
-            inline for (structInfo.fields) |field| {
-                const field_type = field.type;
-
-                switch (@typeInfo(field_type)) {
-                    .pointer => |ptrInfo| {
-                        // Handle []u8 only
-                        if (ptrInfo.size == .slice and ptrInfo.child == u8) {
-                            const field_len = try reader.readInt(u64, .little);
-                            const field_buf = try self.allocator.alloc(u8, field_len);
-                            try reader.readNoEof(field_buf);
-                            @field(result, field.name) = field_buf;
-                        } else {
-                            @compileError("Only []u8 slice pointers are supported.");
-                        }
-                    },
-                    .int => {
-                        const value = try reader.readInt(field_type, .little);
-                        @field(result, field.name) = value;
-                    },
-                    .bool => {
-                        const b = try reader.readByte();
-                        @field(result, field.name) = b != 0;
-                    },
-                    else => {
-                        @compileError("Unsupported field type in readRecord.");
-                    },
-                }
-            }
-
-            return result;
+        fn writeHeader(self: *Self) !void {
+            try self.header_file.seekTo(0);
+            try self.header.write(self.header_file.writer());
         }
 
         pub fn traverseAllNodes(self: *Self) !void {
@@ -264,7 +298,7 @@ pub fn Btree(comptime V: type) type {
             try root.traverseNodes(self);
         }
 
-        pub fn search(self: *Self, key: usize) !?V {
+        pub fn search(self: *Self, key: usize) !?RecordMetadataType {
             const root = try self.readNode(self.header.root_node_offset);
             const offset_opt = try root.search(key, self);
             if (offset_opt) |offset| {
@@ -273,57 +307,24 @@ pub fn Btree(comptime V: type) type {
                 return null;
             }
         }
-        //this update works when we have same length of previous data
-        pub fn updateByIdFiedSize(self: *Self, key: usize, newValue: V) !bool {
+
+        pub fn updateById(self: *Self, key: usize, newRecord: V) !bool {
             const root = try self.readNode(self.header.root_node_offset);
-            const offset_opt = try root.search(key, self);
-            if (offset_opt) |offset| {
-                const seeker = self.record_file.seekableStream();
-                try seeker.seekTo(offset);
-                const writer = self.record_file.writer();
-
-                const typeInfo = @typeInfo(V);
-                const structInfo = typeInfo.@"struct";
-
-                inline for (structInfo.fields) |field| {
-                    const field_value = @field(newValue, field.name);
-                    const field_type = field.type;
-
-                    switch (@typeInfo(field_type)) {
-                        .pointer => |ptrInfo| {
-                            if (ptrInfo.child == u8 and ptrInfo.size == .slice) {
-                                try writer.writeInt(u64, field_value.len, .little);
-                                try writer.writeAll(field_value);
-                            } else {
-                                @compileError("Only []u8 slices are supported for pointer types.");
-                            }
-                        },
-                        .int => {
-                            try writer.writeInt(field_type, field_value, .little);
-                        },
-                        .bool => {
-                            try writer.writeByte(if (field_value) 1 else 0);
-                        },
-                        else => {
-                            @compileError("Unsupported field type in updateById.");
-                        },
-                    }
-                }
-                return true;
-            } else {
-                return false;
-            }
-        }
-
-
-        pub fn updateById(self: *Self, key: usize, newValue: V) !bool {
-            const root = try self.readNode(self.header.root_node_offset);
-            const search_result = try root.searchNodeOffsetAndIndex(key,self);
+            const search_result = try root.searchNodeOffsetAndIndex(key, self);
 
             if (search_result) |result| {
                 var node = try self.readNode(result.node_offset);
-                const new_offset = try self.writeRecord(newValue);
+                const oldRecord = try self.readRecord(node.values[result.index]);
+                var offset_list = std.ArrayList(u64).init(self.allocator);
+                defer offset_list.deinit();
 
+                //push all previous offsets
+                try offset_list.appendSlice(oldRecord.previous_versions_offsets);
+
+                // Push new offset
+                try offset_list.append(node.values[result.index]);
+                const newMeta: RecordMetadataType = try RecordMetadata(V).update(oldRecord.id, newRecord, offset_list.items, oldRecord.created_at);
+                const new_offset = try self.writeRecord(newMeta);
                 node.values[result.index] = new_offset;
 
                 _ = try self.writeNode(&node, false);

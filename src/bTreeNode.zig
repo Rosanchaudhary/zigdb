@@ -1,6 +1,8 @@
 // bTreeNode.zig
 const std = @import("std");
 const BTree = @import("bTree.zig").Btree;
+
+const RecordMetadata = @import("recordStruct.zig").RecordMetadata;
 const Ti = 2;
 const MAX_KEYS = 2 * Ti - 1;
 const MIN_KEYS = Ti - 1;
@@ -10,6 +12,7 @@ pub fn BtreeNode(comptime V: type) type {
     return struct {
         const Self = @This();
         const BTreeType = BTree(V);
+        const RecordMetadataType = RecordMetadata(V);
 
         offset: u64 = 0, // <= NEW FIELD!
         keys: [MAX_KEYS]usize,
@@ -158,8 +161,8 @@ pub fn BtreeNode(comptime V: type) type {
             _ = try tree.writeNode(self, true);
         }
 
-        pub fn traverse(self: *const Self, tree: *BTreeType, allocator: std.mem.Allocator) ![]V {
-            var records = std.ArrayList(V).init(allocator);
+        pub fn traverse(self: *const Self, tree: *BTreeType, allocator: std.mem.Allocator) ![]RecordMetadataType {
+            var records = std.ArrayList(RecordMetadataType).init(allocator);
 
             var i: usize = 0;
             while (i < self.num_keys) {
