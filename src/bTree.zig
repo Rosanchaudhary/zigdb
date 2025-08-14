@@ -2,33 +2,13 @@
 const std = @import("std");
 const BTreeNode = @import("bTreeNode.zig").BtreeNode;
 const RecordMetadata = @import("recordStruct.zig").RecordMetadata;
-const Ti = 2;
-const MAX_KEYS = 2 * Ti - 1;
-const MAX_CHILDREN = MAX_KEYS + 1;
+const Header = @import("header.zig").Header;
+const constants = @import("constants.zig");
 
-const node_serialized_size =
-    1 + // is_leaf
-    1 + // num_keys
-    MAX_KEYS * @sizeOf(usize) +
-    MAX_KEYS * @sizeOf(u64) +
-    MAX_CHILDREN * @sizeOf(u64);
+const MAX_KEYS = constants.MAX_KEYS;
+const MAX_CHILDREN = constants.MAX_CHILDREN;
+const node_serialized_size = constants.node_serialized_size;
 
-const Header = struct {
-    root_node_offset: u64,
-    record_count: u64,
-
-    pub fn write(self: Header, writer: anytype) !void {
-        try writer.writeInt(u64, self.root_node_offset, .little);
-        try writer.writeInt(u64, self.record_count, .little);
-    }
-
-    pub fn read(reader: anytype) !Header {
-        return Header{
-            .root_node_offset = try reader.readInt(u64, .little),
-            .record_count = try reader.readInt(u64, .little),
-        };
-    }
-};
 
 pub fn Btree(comptime V: type) type {
     return struct {

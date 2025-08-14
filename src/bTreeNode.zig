@@ -1,12 +1,13 @@
 // bTreeNode.zig
 const std = @import("std");
 const BTree = @import("bTree.zig").Btree;
-
 const RecordMetadata = @import("recordStruct.zig").RecordMetadata;
-const Ti = 2;
-const MAX_KEYS = 2 * Ti - 1;
-const MIN_KEYS = Ti - 1;
-const MAX_CHILDREN = MAX_KEYS + 1;
+const constants = @import("constants.zig");
+
+const MAX_KEYS = constants.MAX_KEYS;
+const MAX_CHILDREN = constants.MAX_CHILDREN;
+const MIN_KEYS = constants.MIN_KEYS;
+const node_serialized_size = constants.node_serialized_size;
 
 pub fn BtreeNode(comptime V: type) type {
     return struct {
@@ -431,6 +432,8 @@ pub fn BtreeNode(comptime V: type) type {
             _ = try tree.writeNode(self, false);
             _ = try tree.writeNode(parent, false);
         }
+
+        
         pub fn borrowFromRight(
             self: *Self, // Left child
             i: usize, // Index in parent
