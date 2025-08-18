@@ -9,7 +9,6 @@ const MAX_KEYS = constants.MAX_KEYS;
 const MAX_CHILDREN = constants.MAX_CHILDREN;
 const node_serialized_size = constants.node_serialized_size;
 
-
 pub fn Btree(comptime V: type) type {
     return struct {
         const Self = @This();
@@ -25,8 +24,9 @@ pub fn Btree(comptime V: type) type {
         pub fn init(allocator: std.mem.Allocator) !Self {
             // Create files
             var header_file = try std.fs.cwd().createFile("btreeheader.db", .{ .read = true, .truncate = true });
-            const record_file = try std.fs.cwd().createFile("btreerecord.text", .{ .read = true, .truncate = true });
+            const record_file = try std.fs.cwd().createFile("btreerecord.db", .{ .read = true, .truncate = true });
             const node_file = try std.fs.cwd().createFile("btreenode.db", .{ .read = true, .truncate = true });
+  
 
             // Initialize the root node
             var root = BTreeNodeK.init(true);
@@ -36,10 +36,7 @@ pub fn Btree(comptime V: type) type {
 
             // Write header to the HEADER FILE
             try header_file.seekTo(0);
-            const header = Header{
-                .root_node_offset = offset,
-                .record_count = 0,
-            };
+            const header = Header{ .root_node_offset = offset, .record_count = 0, .record_index = 1 };
             try header.write(header_file.writer());
 
             return Self{ .header_file = header_file, .record_file = record_file, .node_file = node_file, .header = header, .allocator = allocator };
@@ -50,12 +47,17 @@ pub fn Btree(comptime V: type) type {
             self.record_file.close();
             self.node_file.close();
         }
-
         pub fn insert(self: *Self, value: V) !void {
-            // ---- Write metadata fields ----
-            const meta = try RecordMetadata(V).init(value.id, value, self.allocator);
+            // Reading header for index and count
+            try self.header_file.seekTo(0);
+            self.header = try self.header.read(self.header_file.reader());
 
+            const rec_id = self.header.record_index;
+
+            // ---- Write metadata fields ----
+            const meta = try RecordMetadata(V).init(rec_id, value, self.allocator);
             const record_offset = try self.writeRecord(meta);
+
             var root = try self.readNode(self.header.root_node_offset);
 
             if (root.num_keys == MAX_KEYS) {
@@ -64,14 +66,17 @@ pub fn Btree(comptime V: type) type {
                 try new_root.splitChild(0, &root, self);
 
                 const new_root_offset = try self.writeNode(&new_root, true);
-
                 self.header.root_node_offset = new_root_offset;
-                try self.writeHeader();
 
-                try new_root.insertNonFull(value.id, record_offset, self);
+                try new_root.insertNonFull(rec_id, record_offset, self);
             } else {
-                try root.insertNonFull(value.id, record_offset, self);
+                try root.insertNonFull(rec_id, record_offset, self);
             }
+
+            // Update header and persist
+            self.header.record_index += 1;
+            self.header.record_count += 1;
+            try self.writeHeader();
         }
 
         fn writeRecord(self: *Self, meta: RecordMetadataType) !u64 {
